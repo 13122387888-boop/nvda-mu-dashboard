@@ -1,0 +1,128 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum OptionType {
+  CALL
+  PUT
+}
+
+enum TriggerType {
+  MANUAL
+  CRON
+}
+
+enum SyncStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+}
+
+enum MarketStatus {
+  STRONG_BULLISH
+  BULLISH
+  NEUTRAL
+  BEARISH
+  INSUFFICIENT_DATA
+}
+
+model StockDaily {
+  id            BigInt   @id @default(autoincrement())
+  symbol        String   @db.VarChar(10)
+  tradeDate     DateTime @map("trade_date") @db.Date
+  open           Decimal  @db.Decimal(18, 6)
+  high           Decimal  @db.Decimal(18, 6)
+  low            Decimal  @db.Decimal(18, 6)
+  close          Decimal  @db.Decimal(18, 6)
+  adjustedClose Decimal? @map("adjusted_close") @db.Decimal(18, 6)
+  volume         BigInt?
+  provider       String   @db.VarChar(32)
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([symbol, tradeDate])
+  @@index([symbol, tradeDate])
+  @@map("stock_daily")
+}
+
+model OptionEod {
+  id                 BigInt     @id @default(autoincrement())
+  symbol             String     @db.VarChar(10)
+  tradeDate          DateTime   @map("trade_date") @db.Date
+  expiration         DateTime   @db.Date
+  optionType         OptionType @map("option_type")
+  strike             Decimal    @db.Decimal(18, 6)
+  contractSymbol     String?    @map("contract_symbol") @db.VarChar(64)
+  contractMultiplier Int        @default(100) @map("contract_multiplier")
+  bid                Decimal?   @db.Decimal(18, 6)
+  ask                Decimal?   @db.Decimal(18, 6)
+  last               Decimal?   @db.Decimal(18, 6)
+  volume             BigInt?
+  openInterest       BigInt?    @map("open_interest")
+  impliedVolatility  Decimal?   @map("implied_volatility") @db.Decimal(18, 8)
+  delta              Decimal?   @db.Decimal(18, 8)
+  gamma              Decimal?   @db.Decimal(18, 8)
+  theta              Decimal?   @db.Decimal(18, 8)
+  vega               Decimal?   @db.Decimal(18, 8)
+  provider           String     @db.VarChar(32)
+  createdAt          DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([symbol, tradeDate, expiration, optionType, strike])
+  @@index([symbol, tradeDate, expiration])
+  @@map("option_eod")
+}
+
+model StockMetrics {
+  id                BigInt       @id @default(autoincrement())
+  symbol            String       @db.VarChar(10)
+  tradeDate         DateTime     @map("trade_date") @db.Date
+  optionsTradeDate  DateTime?    @map("options_trade_date") @db.Date
+  optionsExpiration DateTime?    @map("options_expiration") @db.Date
+  close             Decimal      @db.Decimal(18, 6)
+  dailyChange       Decimal?     @map("daily_change") @db.Decimal(18, 6)
+  dailyChangePct    Decimal?     @map("daily_change_pct") @db.Decimal(18, 6)
+  ma20              Decimal?     @db.Decimal(18, 6)
+  ma50              Decimal?     @db.Decimal(18, 6)
+  ma200             Decimal?     @db.Decimal(18, 6)
+  rsi14             Decimal?     @db.Decimal(18, 6)
+  rv20              Decimal?     @db.Decimal(18, 8)
+  expectedMove      Decimal?     @map("expected_move") @db.Decimal(18, 6)
+  expectedMovePct   Decimal?     @map("expected_move_pct") @db.Decimal(18, 8)
+  expectedUpper     Decimal?     @map("expected_upper") @db.Decimal(18, 6)
+  expectedLower     Decimal?     @map("expected_lower") @db.Decimal(18, 6)
+  putCallOi         Decimal?     @map("put_call_oi") @db.Decimal(18, 8)
+  maxPain           Decimal?     @map("max_pain") @db.Decimal(18, 6)
+  callWall          Decimal?     @map("call_wall") @db.Decimal(18, 6)
+  putWall           Decimal?     @map("put_wall") @db.Decimal(18, 6)
+  atmIv             Decimal?     @map("atm_iv") @db.Decimal(18, 8)
+  marketStatus      MarketStatus @map("market_status")
+  createdAt         DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([symbol, tradeDate])
+  @@map("stock_metrics")
+}
+
+model SyncRun {
+  id           BigInt      @id @default(autoincrement())
+  triggerType  TriggerType @map("trigger_type")
+  startedAt    DateTime    @default(now()) @map("started_at") @db.Timestamptz(6)
+  completedAt  DateTime?   @map("completed_at") @db.Timestamptz(6)
+  status       SyncStatus
+  symbols      String[]
+  stockRows    Int         @default(0) @map("stock_rows")
+  optionRows   Int         @default(0) @map("option_rows")
+  metricsRows  Int         @default(0) @map("metrics_rows")
+  errorMessage String?     @map("error_message") @db.Text
+  createdAt    DateTime    @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([startedAt])
+  @@map("sync_run")
+}

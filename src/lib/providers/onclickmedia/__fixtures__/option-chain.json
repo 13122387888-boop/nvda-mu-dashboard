@@ -1,0 +1,38 @@
+[
+  { "warning": "sample coverage warning" },
+  {
+    "symbol": "NVDA",
+    "contract_id": "NVDA--260828C00210000",
+    "date": "2026-08-25",
+    "expiration": "2026-08-28",
+    "strike": "210",
+    "type": "call",
+    "last": 7.92,
+    "bid": 7.85,
+    "ask": 8,
+    "volume": 40015,
+    "open_interest": 27820,
+    "greeks": { "implied_volatility": 45, "delta": 0.59, "gamma": 0.02, "theta": -1.1, "vega": 0.08 }
+  },
+  {
+    "symbol": "NVDA",
+    "contract_id": null,
+    "date": "2026-08-25",
+    "expiration": "2026-08-28",
+    "strike": 210,
+    "type": "put",
+    "last": null,
+    "bid": null,
+    "ask": null,
+    "volume": null,
+    "open_interest": null,
+    "greeks": { "implied_volatility": null, "delta": null, "gamma": null, "theta": null, "vega": null }
+  },
+  {
+    "symbol": "NVDA",
+    "date": "bad-date",
+    "expiration": "2026-08-28",
+    "strike": "NaN",
+    "type": "call"
+  }
+]

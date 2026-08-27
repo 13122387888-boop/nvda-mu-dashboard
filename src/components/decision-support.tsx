@@ -1,0 +1,145 @@
+import type { CSSProperties } from "react";
+import { buildObservationScenarios, buildResearchBrief, type DecisionSupportInput, type ScenarioInput } from "@/lib/indicators/decision-support";
+import { money, percent } from "@/lib/format";
+
+export function DataScope({
+  stockDate,
+  optionsDate,
+  expiration,
+  strikeCount,
+}: {
+  stockDate: string;
+  optionsDate: string | null;
+  expiration: string | null;
+  strikeCount: number;
+}) {
+  return (
+    <section className="data-scope" aria-label="数据口径">
+      <div className="scope-tags">
+        <span><b>股票</b>EOD · {stockDate}</span>
+        <span><b>期权</b>EOD · {optionsDate ?? "暂无"}</span>
+        <span><b>到期日</b>{expiration ?? "暂无"}</span>
+        <span><b>覆盖</b>{strikeCount ? `${strikeCount} 个近价行权价` : "暂无期权链"}</span>
+      </div>
+      <details>
+        <summary>查看数据口径与限制</summary>
+        <div className="scope-grid">
+          <div><b>股票行情</b><p>采用调整后日线数据计算涨跌、MA20/50/200、RSI14 与 RV20。页面不是盘中实时行情，周末、休市日及数据源发布前会停留在最近交易日。</p></div>
+          <div><b>期权范围</b><p>使用最新可取得的日终期权链，并选择最近的未来到期日。当前公开数据以最接近平值的有限行权价为主，因此看涨墙、看跌墙和最大痛点均是覆盖范围内的估算。</p></div>
+          <div><b>模型指标</b><p>预期区间采用最近到期 ATM Call 与 Put 权利金之和；Gamma 按 Call 为正、Put 为负的统一符号计算结构代理，不能识别真实做市商持仓。</p></div>
+          <div><b>使用边界</b><p>规则观察未纳入盘中变化、财报新闻、交易成本、个人持仓及风险承受能力，仅用于研究展示，不构成买入、卖出、持有或仓位建议。</p></div>
+        </div>
+      </details>
+    </section>
+  );
+}
+
+export function ResearchBrief({ input }: { input: DecisionSupportInput }) {
+  const brief = buildResearchBrief(input);
+  return (
+    <section className="research-brief" aria-labelledby="research-brief-title">
+      <div className="brief-heading">
+        <div><span>30 SEC RESEARCH BRIEF</span><h2 id="research-brief-title">30秒研究简报</h2></div>
+        <b>规则观察</b>
+      </div>
+      <p className="brief-summary">{brief.summary}</p>
+      <div className="brief-grid">
+        {brief.items.map((item) => (
+          <article className={`brief-item ${item.tone}`} key={item.label}>
+            <span>{item.label}</span><strong>{item.state}</strong><p>{item.detail}</p>
+          </article>
+        ))}
+      </div>
+      <small>只描述当前公开日终数据 · 不构成投资建议 · 数据变化后结论会重新计算</small>
+    </section>
+  );
+}
+
+type NullableNumber = number | null;
+
+export function KeyDistanceMap({
+  close,
+  callWall,
+  putWall,
+  maxPain,
+  expectedUpper,
+  expectedLower,
+  expectedMove,
+}: {
+  close: number;
+  callWall: NullableNumber;
+  putWall: NullableNumber;
+  maxPain: NullableNumber;
+  expectedUpper: NullableNumber;
+  expectedLower: NullableNumber;
+  expectedMove: NullableNumber;
+}) {
+  const levels = [
+    { label: "看跌墙", value: putWall, className: "put-wall" },
+    { label: "预期下沿", value: expectedLower, className: "range-edge" },
+    { label: "最大痛点", value: maxPain, className: "max-pain" },
+    { label: "现价", value: close, className: "spot" },
+    { label: "预期上沿", value: expectedUpper, className: "range-edge" },
+    { label: "看涨墙", value: callWall, className: "call-wall" },
+  ].filter((level): level is { label: string; value: number; className: string } => level.value !== null && Number.isFinite(level.value));
+  const ordered = [...levels].sort((a, b) => a.value - b.value);
+  const rawMin = Math.min(...ordered.map((level) => level.value));
+  const rawMax = Math.max(...ordered.map((level) => level.value));
+  const rawSpan = Math.max(rawMax - rawMin, close * 0.04);
+  const min = rawMin - rawSpan * 0.08;
+  const max = rawMax + rawSpan * 0.08;
+  const position = (value: number) => `${((value - min) / (max - min)) * 100}%`;
+  const relative = (value: NullableNumber) => value === null ? "—" : percent((value - close) / close);
+  const expectedPct = expectedMove === null ? "—" : `±${percent(expectedMove / close)}`;
+
+  return (
+    <section className="visual-card key-distance-card" aria-labelledby="key-distance-title">
+      <div className="visual-card-heading">
+        <div><span>PRICE LEVEL DISTANCE</span><strong id="key-distance-title">关键距离图</strong></div>
+        <small>全部数值均相对当前收盘价</small>
+      </div>
+      <div className="level-map-scroll">
+        <div className="level-map" role="img" aria-label="现价、预期区间、最大痛点、看涨墙和看跌墙价格位置图">
+          <i className="level-axis" />
+          {ordered.map((level, index) => (
+            <div className={`level-pin ${level.className} tier-${index % 3}`} style={{ "--level-left": position(level.value) } as CSSProperties} key={level.label}>
+              <span>{level.label}</span><b>{money(level.value)}</b><i />
+            </div>
+          ))}
+          <span className="level-bound lower">{money(rawMin)}</span><span className="level-bound upper">{money(rawMax)}</span>
+        </div>
+      </div>
+      <div className="distance-grid">
+        <div><span>看涨墙相对现价</span><strong>{relative(callWall)}</strong><small>{money(callWall)}</small></div>
+        <div><span>看跌墙相对现价</span><strong>{relative(putWall)}</strong><small>{money(putWall)}</small></div>
+        <div><span>最大痛点相对现价</span><strong>{relative(maxPain)}</strong><small>{money(maxPain)}</small></div>
+        <div><span>到期预期波动</span><strong>{expectedPct}</strong><small>{expectedMove === null ? "—" : `±${money(expectedMove)}`}</small></div>
+      </div>
+    </section>
+  );
+}
+
+export function ScenarioObservation({ input }: { input: ScenarioInput }) {
+  const scenarios = buildObservationScenarios(input);
+  return (
+    <section className="scenario-section" aria-labelledby="scenario-title">
+      <div className="scenario-heading">
+        <div><span>CONDITIONAL OBSERVATIONS</span><h3 id="scenario-title">情景观察卡</h3></div>
+        <p>先看条件是否成立，再看其他指标是否共振。</p>
+      </div>
+      <div className="scenario-grid">
+        {scenarios.map((scenario) => (
+          <article className={`scenario-card ${scenario.tone}`} key={scenario.label}>
+            <span>{scenario.label}</span><h4>{scenario.title}</h4>
+            <dl>
+              <div><dt>触发条件</dt><dd>{scenario.condition}</dd></div>
+              <div><dt>辅助解读</dt><dd>{scenario.observation}</dd></div>
+              <div><dt>重新判断</dt><dd>{scenario.invalidation}</dd></div>
+            </dl>
+          </article>
+        ))}
+      </div>
+      <small>这是基于日终数据的条件观察，不是交易指令；未纳入财报、新闻、盘中流动性和个人风险承受能力。</small>
+    </section>
+  );
+}

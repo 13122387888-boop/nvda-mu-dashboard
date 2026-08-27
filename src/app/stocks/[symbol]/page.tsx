@@ -2,11 +2,12 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
+import { DataScope, KeyDistanceMap, ResearchBrief, ScenarioObservation } from "@/components/decision-support";
 import { OptionOiChart } from "@/components/option-oi-chart";
 import { PriceChart } from "@/components/price-chart";
 import { ExpectedRangeVisual, GammaExposureVisual, MomentumVisual, PutCallVisual, TrendDeviation } from "@/components/indicator-visuals";
 import { Footer, Header } from "@/components/site-chrome";
-import { money, percent, STATUS_LABELS } from "@/lib/format";
+import { money, percent } from "@/lib/format";
 import { getStockDashboard, isSupportedSymbol, STOCKS } from "@/lib/services/stock-dashboard-service";
 
 export async function generateMetadata({ params }: { params: Promise<{ symbol: string }> }): Promise<Metadata> {
@@ -43,15 +44,15 @@ export default async function StockPage({ params }: { params: Promise<{ symbol: 
         <div><Link href="/" className="back-link">← 返回总览</Link><p className="eyebrow">{dashboard.symbol} · 收盘研究</p><h1>{dashboard.name}</h1></div>
         <div className="quote-block"><strong>{money(dashboard.quote.close)}</strong><span className={change !== null && change >= 0 ? "positive" : "negative"}>{change === null ? "—" : `${change >= 0 ? "+" : ""}${percent(change, true)}`}</span></div>
       </section>
-      <div className="date-strip">
-        <b>数据口径</b><span>股票数据截至 {dashboard.stockDate}</span><span>期权数据截至 {dashboard.optionsDate ?? "—"}</span><span>期权到期日 {dashboard.optionsExpiration ?? "—"}</span>
-      </div>
-      <section className="status-panel"><div><span>趋势状态</span><strong>{STATUS_LABELS[dashboard.quote.marketStatus]}</strong></div><p>依据收盘价、20/50/200日均线和 RSI14 的客观规则判断。</p></section>
+      <DataScope stockDate={dashboard.stockDate} optionsDate={dashboard.optionsDate} expiration={dashboard.optionsExpiration} strikeCount={dashboard.optionOpenInterest.length} />
+      <ResearchBrief input={{ marketStatus: dashboard.quote.marketStatus, rsi14: dashboard.trend.rsi14, rv20: dashboard.trend.rv20, atmIv: dashboard.options.atmIv, gammaRegime: dashboard.options.gammaExposure.regime }} />
 
       <section className="section-block"><div className="section-heading-row"><div><span className="section-index">01</span><h2>价格趋势与期权关键位</h2></div><div className="legend"><i className="candle" />日K<i className="ma20" />20日均线<i className="ma50" />50日均线<i className="ma200" />200日均线</div></div>
         <div className="metric-grid four"><MetricCard label="收盘价" value={money(dashboard.quote.close)} /><MetricCard label="20日均线" value={money(dashboard.trend.ma20)} /><MetricCard label="50日均线" value={money(dashboard.trend.ma50)} /><MetricCard label="200日均线" value={money(dashboard.trend.ma200)} /></div>
         <TrendDeviation close={dashboard.quote.close} ma20={dashboard.trend.ma20} ma50={dashboard.trend.ma50} ma200={dashboard.trend.ma200} />
+        <KeyDistanceMap close={dashboard.quote.close} callWall={dashboard.options.callWall} putWall={dashboard.options.putWall} maxPain={dashboard.options.maxPain} expectedUpper={dashboard.options.expectedUpper} expectedLower={dashboard.options.expectedLower} expectedMove={dashboard.options.expectedMove} />
         <div className="chart-panel"><PriceChart data={dashboard.priceHistory} levels={{ maxPain: dashboard.options.maxPain, callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, expectedUpper: dashboard.options.expectedUpper, expectedLower: dashboard.options.expectedLower }} /></div>
+        <ScenarioObservation input={{ close: dashboard.quote.close, callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, marketStatus: dashboard.quote.marketStatus, gammaRegime: dashboard.options.gammaExposure.regime }} />
       </section>
 
       <section className="section-block"><div className="section-heading-row"><div><span className="section-index">02</span><h2>动量与波动率</h2></div></div>

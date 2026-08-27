@@ -2,8 +2,52 @@ import type { CSSProperties } from "react";
 import { money, number, percent } from "@/lib/format";
 
 type NullableNumber = number | null;
+type GammaRegime = "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+function compactMoney(value: number) {
+  const formatter = new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 });
+  return `${value < 0 ? "-" : ""}$${formatter.format(Math.abs(value))}`;
+}
+
+export function GammaExposureVisual({
+  callGamma,
+  putGamma,
+  netGamma,
+  regime,
+}: {
+  callGamma: number;
+  putGamma: number;
+  netGamma: number;
+  regime: GammaRegime;
+}) {
+  const max = Math.max(callGamma, putGamma, 1);
+  const labels = {
+    POSITIVE: { title: "正 Gamma 代理", className: "positive", conclusion: "关键位附近更偏震荡与均值回归，潜在对冲流通常有抑制波动的倾向。" },
+    NEGATIVE: { title: "负 Gamma 代理", className: "negative", conclusion: "突破关键位后波动可能被放大，追涨杀跌和跳空风险需要更高警惕。" },
+    NEUTRAL: { title: "Gamma 接近中性", className: "neutral", conclusion: "Call 与 Put 的 Gamma 代理较均衡，当前结构对价格的方向性影响不明确。" },
+    UNAVAILABLE: { title: "Gamma 数据不足", className: "neutral", conclusion: "当前期权数据不足以形成 Gamma 结构判断。" },
+  } as const;
+  const state = labels[regime];
+
+  return (
+    <div className={`visual-card gamma-visual ${state.className}`}>
+      <div className="gamma-heading">
+        <div><span>GAMMA 结构代理</span><strong>{state.title}</strong></div>
+        <div className="gamma-net"><span>净 Gamma / 标的变动 1%</span><b>{compactMoney(netGamma)}</b></div>
+      </div>
+      <div className="gamma-scale" role="img" aria-label={`Put Gamma 代理 ${compactMoney(putGamma)}，Call Gamma 代理 ${compactMoney(callGamma)}，当前${state.title}`}>
+        <div className="gamma-side put"><i style={{ width: `${(putGamma / max) * 100}%` }} /></div>
+        <i className="gamma-axis" />
+        <div className="gamma-side call"><i style={{ width: `${(callGamma / max) * 100}%` }} /></div>
+      </div>
+      <div className="gamma-labels"><span>Put 负向代理 <b>{compactMoney(putGamma)}</b></span><span>Call 正向代理 <b>{compactMoney(callGamma)}</b></span></div>
+      <p><b>结构结论：</b>{state.conclusion}</p>
+      <small>口径说明：按 Call 为正、Put 为负的公开 OI 约定估算。公开未平仓量无法识别实际持仓者及其多空方向，因此这不是做市商真实 Gamma，只用于观察结构。</small>
+    </div>
+  );
+}
 
 export function TrendDeviation({
   close,

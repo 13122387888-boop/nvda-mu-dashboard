@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { OptionOiChart } from "@/components/option-oi-chart";
 import { PriceChart } from "@/components/price-chart";
-import { ExpectedRangeVisual, MomentumVisual, PutCallVisual, TrendDeviation } from "@/components/indicator-visuals";
+import { ExpectedRangeVisual, GammaExposureVisual, MomentumVisual, PutCallVisual, TrendDeviation } from "@/components/indicator-visuals";
 import { Footer, Header } from "@/components/site-chrome";
 import { money, percent, STATUS_LABELS } from "@/lib/format";
 import { getStockDashboard, isSupportedSymbol, STOCKS } from "@/lib/services/stock-dashboard-service";
@@ -48,10 +48,10 @@ export default async function StockPage({ params }: { params: Promise<{ symbol: 
       </div>
       <section className="status-panel"><div><span>趋势状态</span><strong>{STATUS_LABELS[dashboard.quote.marketStatus]}</strong></div><p>依据收盘价、20/50/200日均线和 RSI14 的客观规则判断。</p></section>
 
-      <section className="section-block"><div className="section-heading-row"><div><span className="section-index">01</span><h2>价格趋势</h2></div><div className="legend"><i className="close" />收盘价<i className="ma20" />20日均线<i className="ma50" />50日均线<i className="ma200" />200日均线</div></div>
+      <section className="section-block"><div className="section-heading-row"><div><span className="section-index">01</span><h2>价格趋势与期权关键位</h2></div><div className="legend"><i className="candle" />日K<i className="ma20" />20日均线<i className="ma50" />50日均线<i className="ma200" />200日均线</div></div>
         <div className="metric-grid four"><MetricCard label="收盘价" value={money(dashboard.quote.close)} /><MetricCard label="20日均线" value={money(dashboard.trend.ma20)} /><MetricCard label="50日均线" value={money(dashboard.trend.ma50)} /><MetricCard label="200日均线" value={money(dashboard.trend.ma200)} /></div>
         <TrendDeviation close={dashboard.quote.close} ma20={dashboard.trend.ma20} ma50={dashboard.trend.ma50} ma200={dashboard.trend.ma200} />
-        <div className="chart-panel"><PriceChart data={dashboard.priceHistory} /></div>
+        <div className="chart-panel"><PriceChart data={dashboard.priceHistory} levels={{ maxPain: dashboard.options.maxPain, callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, expectedUpper: dashboard.options.expectedUpper, expectedLower: dashboard.options.expectedLower }} /></div>
       </section>
 
       <section className="section-block"><div className="section-heading-row"><div><span className="section-index">02</span><h2>动量与波动率</h2></div></div>
@@ -64,8 +64,9 @@ export default async function StockPage({ params }: { params: Promise<{ symbol: 
             <ExpectedRangeVisual close={dashboard.quote.close} lower={dashboard.options.expectedLower} upper={dashboard.options.expectedUpper} expectedMove={dashboard.options.expectedMove} expectedMovePct={dashboard.options.expectedMovePct} maxPain={dashboard.options.maxPain} callWall={dashboard.options.callWall} putWall={dashboard.options.putWall} />
             <PutCallVisual ratio={dashboard.options.putCallOi} atmIv={dashboard.options.atmIv} />
           </div>
+          <GammaExposureVisual {...dashboard.options.gammaExposure} />
           <div className="metric-grid options compact"><MetricCard label="最大痛点" value={money(dashboard.options.maxPain)} /><MetricCard label="看涨墙" value={money(dashboard.options.callWall)} /><MetricCard label="看跌墙" value={money(dashboard.options.putWall)} /><MetricCard label="平值隐含波动率" value={percent(dashboard.options.atmIv)} /></div>
-          <div className="chart-panel oi-panel"><div className="chart-title"><h3>按行权价分布的未平仓量</h3><span><i className="call" />看涨 Call <i className="put" />看跌 Put</span></div><OptionOiChart data={dashboard.optionOpenInterest} /></div>
+          <div className="chart-panel oi-panel"><div className="chart-title"><div><h3>按行权价分布的未平仓量</h3><small>同一价格轴 · Call 向上 / Put 向下</small></div><span><i className="call" />看涨 Call <i className="put" />看跌 Put</span></div><OptionOiChart data={dashboard.optionOpenInterest} /></div>
         </>}
       </section>
       <Footer />

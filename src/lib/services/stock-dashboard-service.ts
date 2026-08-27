@@ -1,5 +1,6 @@
 import { addDays, dateToYmd } from "@/lib/dates";
 import { getPrisma } from "@/lib/db/prisma";
+import { calculateGammaExposureProxy } from "@/lib/indicators/options/gamma-exposure";
 import { movingAverageSeries } from "@/lib/indicators/moving-average";
 import type { SupportedSymbol } from "@/lib/providers/types";
 
@@ -55,6 +56,12 @@ export async function getStockDashboard(symbol: SupportedSymbol) {
       })
     : [];
   const close = Number(metrics.close);
+  const gammaExposure = calculateGammaExposureProxy(optionRows.map((row) => ({
+    optionType: row.optionType,
+    gamma: numberOrNull(row.gamma),
+    openInterest: row.openInterest === null ? null : Number(row.openInterest),
+    contractMultiplier: row.contractMultiplier,
+  })), close);
   const oi = new Map<number, { strike: number; callOi: number; putOi: number }>();
   for (const row of optionRows) {
     const strike = Number(row.strike);
@@ -96,10 +103,14 @@ export async function getStockDashboard(symbol: SupportedSymbol) {
       callWall: numberOrNull(metrics.callWall),
       putWall: numberOrNull(metrics.putWall),
       atmIv: numberOrNull(metrics.atmIv),
+      gammaExposure,
     },
     priceHistory: calculationHistory.map((row, index) => ({
       date: dateToYmd(row.tradeDate),
-      close: closes[index],
+      open: Number(row.open),
+      high: Number(row.high),
+      low: Number(row.low),
+      close: Number(row.close),
       ma20: ma20[index],
       ma50: ma50[index],
       ma200: ma200[index],

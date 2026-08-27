@@ -3,7 +3,7 @@ import type { StockDailyRecord } from "@/lib/providers/types";
 import { simpleMovingAverage } from "./moving-average";
 import { realizedVolatility } from "./realized-volatility";
 import { wilderRsi } from "./rsi";
-import { calculateStockMetrics } from "./stock-metrics";
+import { calculateStockMetrics, calculateTrendScore } from "./stock-metrics";
 
 function records(count: number): StockDailyRecord[] {
   return Array.from({ length: count }, (_, index) => ({
@@ -44,5 +44,12 @@ describe("stock indicators", () => {
     expect(metrics?.ma50).toBeNull();
     expect(metrics?.ma200).toBeNull();
     expect(metrics?.marketStatus).toBe("INSUFFICIENT_DATA");
+  });
+
+  it("quantifies trend strength on a 0 to 100 scale", () => {
+    expect(calculateTrendScore({ close: 120, ma20: 110, ma50: 100, ma200: 80, rsi14: 65 })).toBeGreaterThanOrEqual(90);
+    expect(calculateTrendScore({ close: 80, ma20: 90, ma50: 100, ma200: 120, rsi14: 35 })).toBeLessThanOrEqual(10);
+    expect(calculateTrendScore({ close: 100, ma20: 100, ma50: 100, ma200: 100, rsi14: 50 })).toBe(50);
+    expect(calculateTrendScore({ close: 100, ma20: null, ma50: null, ma200: 100, rsi14: 50 })).toBeNull();
   });
 });

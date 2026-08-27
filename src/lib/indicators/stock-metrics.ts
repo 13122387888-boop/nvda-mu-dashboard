@@ -5,6 +5,38 @@ import { wilderRsi } from "./rsi";
 
 export type MarketStatusValue = "STRONG_BULLISH" | "BULLISH" | "NEUTRAL" | "BEARISH" | "INSUFFICIENT_DATA";
 
+const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
+
+export function calculateTrendScore(input: {
+  close: number;
+  ma20: number | null;
+  ma50: number | null;
+  ma200: number | null;
+  rsi14: number | null;
+}) {
+  const { close, ma20, ma50, ma200, rsi14 } = input;
+  const availableAverages = [ma20, ma50, ma200].filter((value): value is number => value !== null && value > 0);
+  if (close <= 0 || availableAverages.length < 2) return null;
+
+  const deviationContribution = (average: number | null, scale: number, weight: number) =>
+    average === null || average <= 0 ? 0 : clamp((close / average - 1) / scale, -1, 1) * weight;
+  const compareAverages = (faster: number | null, slower: number | null) =>
+    faster === null || slower === null || faster === slower ? 0 : faster > slower ? 5 : -5;
+  const alignment = compareAverages(ma20, ma50) + compareAverages(ma50, ma200);
+  const momentum = rsi14 === null ? 0 : clamp((rsi14 - 50) / 20, -1, 1) * 5;
+
+  return Math.round(clamp(
+    50
+      + deviationContribution(ma20, 0.06, 15)
+      + deviationContribution(ma50, 0.12, 15)
+      + deviationContribution(ma200, 0.25, 20)
+      + alignment
+      + momentum,
+    0,
+    100,
+  ));
+}
+
 export function classifyMarketStatus(input: {
   close: number;
   ma20: number | null;
@@ -44,6 +76,7 @@ export function calculateStockMetrics(records: StockDailyRecord[]) {
     ma200,
     rsi14,
     rv20: realizedVolatility(prices, 20),
+    trendScore: calculateTrendScore({ close, ma20, ma50, ma200, rsi14 }),
     marketStatus: classifyMarketStatus({ close, ma20, ma50, ma200, rsi14 }),
   };
 }

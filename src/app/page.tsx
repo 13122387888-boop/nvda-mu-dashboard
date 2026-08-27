@@ -14,6 +14,7 @@ export default async function Home() {
       ...STOCKS[symbol],
       close: null,
       dailyChangePct: null,
+      trendScore: null,
       marketStatus: "INSUFFICIENT_DATA",
       gammaRegime: "UNAVAILABLE" as const,
       attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
@@ -26,9 +27,9 @@ export default async function Home() {
       <Header />
       <section className="hero home-hero">
         <p className="eyebrow">美股收盘行情与期权观察</p>
-        <h1>{cards.length}只热门股票，先找到今天值得细看的对象。</h1>
+        <h1>热门股票，先找到今天值得细看的对象。</h1>
         <p className="hero-copy">
-          首页只做快速筛选：比较收盘表现、趋势、Gamma 与最重要的关注理由；点击股票后再进入完整研究页。
+          首页按趋势强度自动排序：比较收盘表现、趋势分、Gamma 与最重要的关注理由；点击股票后再进入完整研究页。
         </p>
       </section>
       <StockScanner cards={cards} />

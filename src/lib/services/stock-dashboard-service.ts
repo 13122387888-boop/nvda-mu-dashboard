@@ -5,6 +5,7 @@ import { calculateGammaExposureProxy } from "@/lib/indicators/options/gamma-expo
 import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics";
 import { putCallOpenInterest } from "@/lib/indicators/options/put-call-ratio";
 import { movingAverageSeries } from "@/lib/indicators/moving-average";
+import { calculateTrendScore } from "@/lib/indicators/stock-metrics";
 import { realizedVolatility } from "@/lib/indicators/realized-volatility";
 import { wilderRsi } from "@/lib/indicators/rsi";
 import type { OptionContractRecord, SupportedSymbol } from "@/lib/providers/types";
@@ -174,6 +175,7 @@ async function loadStockCards() {
         accent: STOCKS[symbol].accent,
         close: null,
         dailyChangePct: null,
+        trendScore: null,
         marketStatus: "INSUFFICIENT_DATA" as const,
         gammaRegime: "UNAVAILABLE" as const,
         attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
@@ -213,6 +215,13 @@ async function loadStockCards() {
       accent: STOCKS[symbol].accent,
       close,
       dailyChangePct: numberOrNull(metrics.dailyChangePct),
+      trendScore: calculateTrendScore({
+        close,
+        ma20: numberOrNull(metrics.ma20),
+        ma50: numberOrNull(metrics.ma50),
+        ma200: numberOrNull(metrics.ma200),
+        rsi14: numberOrNull(metrics.rsi14),
+      }),
       marketStatus: metrics.marketStatus,
       gammaRegime,
       attention,
@@ -221,7 +230,7 @@ async function loadStockCards() {
   }));
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v2"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v3"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();

@@ -1,6 +1,6 @@
 # US Equity EOD Research Dashboard
 
-A product-validation dashboard for a configuration-driven US equity watchlist. The initial pool covers **NVDA, MU, SNDK, MSFT, and TSLA**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
+A product-validation dashboard for a configuration-driven US equity watchlist. The current pool covers **NVDA, MU, SNDK, MSFT, TSLA, and DRAM**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
 
 This is research software, not a real-time feed or investment-advice product.
 
@@ -118,7 +118,7 @@ npm run test
 npm run build
 ```
 
-Tests cover MA20/50/200, Wilder RSI14, RV20, insufficient history, expected move and pricing fallback, put/call OI, max pain, option walls, ATM IV, empty/missing contracts, field/date/side/IV mapping, null handling, and invalid-number filtering.
+Tests cover MA20/50/200, the 0–100 trend score, Wilder RSI14, RV20, insufficient history, expected move and pricing fallback, put/call OI, max pain, option walls, ATM IV, empty/missing contracts, field/date/side/IV mapping, null handling, and invalid-number filtering.
 
 ## 6. Private GitHub repository
 

@@ -144,11 +144,6 @@ export function MomentumInformation({ rsi, realizedVolatility, atmIv }: { rsi: N
   );
 }
 
-function markerPosition(value: NullableNumber, lower: NullableNumber, upper: NullableNumber) {
-  if (value === null || lower === null || upper === null || upper <= lower) return null;
-  return `${clamp((value - lower) / (upper - lower) * 100, 0, 100)}%`;
-}
-
 export function ExpectedRangeVisual({
   close,
   lower,
@@ -168,12 +163,21 @@ export function ExpectedRangeVisual({
   callWall: NullableNumber;
   putWall: NullableNumber;
 }) {
-  const markers = [
+  const points = [
+    { label: "预期下沿", value: lower, className: "lower" },
+    { label: "预期上沿", value: upper, className: "upper" },
     { label: "现价", value: close, className: "spot" },
     { label: "最大痛点", value: maxPain, className: "pain" },
     { label: "看涨墙", value: callWall, className: "call-wall" },
     { label: "看跌墙", value: putWall, className: "put-wall" },
-  ];
+  ].filter((point): point is { label: string; value: number; className: string } => point.value !== null && Number.isFinite(point.value))
+    .sort((a, b) => a.value - b.value);
+  const minimum = Math.min(...points.map((point) => point.value));
+  const maximum = Math.max(...points.map((point) => point.value));
+  const spread = Math.max(maximum - minimum, close * 0.02, 1);
+  const domainMinimum = minimum - spread * 0.06;
+  const domainMaximum = maximum + spread * 0.06;
+  const position = (value: number) => clamp((value - domainMinimum) / (domainMaximum - domainMinimum) * 100, 0, 100);
 
   return (
     <div className="visual-card range-visual">
@@ -182,16 +186,14 @@ export function ExpectedRangeVisual({
         <b>{expectedMovePct === null ? "—" : `± ${percent(expectedMovePct)}`}</b>
       </div>
       {lower === null || upper === null ? <div className="mini-empty">暂无可用期权区间</div> : <>
-        <div className="range-label-row"><b>{money(lower)}</b><span>市场隐含波动范围</span><b>{money(upper)}</b></div>
-        <div className="range-track" role="img" aria-label={`预期价格区间 ${money(lower)} 至 ${money(upper)}`}>
-          <i className="range-band" />
-          {markers.map((marker) => {
-            const left = markerPosition(marker.value, lower, upper);
-            return left && <i className={`range-marker ${marker.className}`} style={{ left }} key={marker.label} title={`${marker.label} ${money(marker.value)}`} />;
+        <div className="range-plot" role="img" aria-label={`预期价格区间 ${money(lower)} 至 ${money(upper)}，并标注现价、最大痛点、看涨墙和看跌墙`}>
+          <i className="range-axis" />
+          <i className="range-band" style={{ left: `${position(lower)}%`, width: `${Math.max(position(upper) - position(lower), 1)}%` }} />
+          {points.map((point, index) => {
+            const left = position(point.value);
+            const edge = left < 8 ? "edge-left" : left > 92 ? "edge-right" : "";
+            return <span className={`range-point ${point.className} lane-${index % 3} ${edge}`} style={{ left: `${left}%` }} key={point.label}><i /><small>{point.label}</small><b>{money(point.value)}</b></span>;
           })}
-        </div>
-        <div className="range-legend">
-          {markers.map((marker) => <span key={marker.label}><i className={marker.className} />{marker.label}<b>{money(marker.value)}</b></span>)}
         </div>
       </>}
     </div>
@@ -203,15 +205,19 @@ export function PutCallVisual({ ratio, atmIv }: { ratio: NullableNumber; atmIv: 
   const callShare = 1 - putShare;
   return (
     <div className="visual-card put-call-visual">
-      <div className="donut" style={{ "--put-share": `${putShare * 100}%` } as CSSProperties} role="img" aria-label={`Put Call 持仓比 ${number(ratio)}`}>
-        <div><strong>{number(ratio)}</strong><span>Put / Call</span></div>
+      <div className="visual-card-heading put-call-heading">
+        <div><MetricLabel metric="putCallOi">持仓结构</MetricLabel><strong>Call / Put 未平仓量</strong></div>
+        <b>{number(ratio)} <small>Put / Call</small></b>
       </div>
-      <div className="donut-copy">
-        <MetricLabel metric="putCallOi">持仓结构</MetricLabel>
-        <div><i className="call" /><b>Call {Math.round(callShare * 100)}%</b></div>
-        <div><i className="put" /><b>Put {Math.round(putShare * 100)}%</b></div>
-        <small>平值隐含波动率 {percent(atmIv)}</small>
+      <div className="put-call-bar" role="img" aria-label={`Call 占 ${Math.round(callShare * 100)}%，Put 占 ${Math.round(putShare * 100)}%`}>
+        <i className="call" style={{ width: `${callShare * 100}%` }} />
+        <i className="put" style={{ width: `${putShare * 100}%` }} />
       </div>
+      <div className="put-call-sides">
+        <div className="call"><span>CALL</span><strong>{Math.round(callShare * 100)}%</strong><small>看涨未平仓量占比</small></div>
+        <div className="put"><span>PUT</span><strong>{Math.round(putShare * 100)}%</strong><small>看跌未平仓量占比</small></div>
+      </div>
+      <small className="put-call-note">平值隐含波动率 {percent(atmIv)}</small>
     </div>
   );
 }

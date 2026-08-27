@@ -22,13 +22,14 @@ export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevel
 
   useEffect(() => {
     if (!container.current || !data.length) return;
+    const rightWhitespaceBars = Math.max(18, Math.ceil(data.length / 3));
     const chart = createChart(container.current, {
       autoSize: true,
       height: container.current.clientWidth < 640 ? 300 : 410,
       layout: { background: { type: ColorType.Solid, color: "#10151d" }, textColor: "#8994a4" },
       grid: { vertLines: { color: "#1b222d" }, horzLines: { color: "#1b222d" } },
       rightPriceScale: { borderColor: "#252d39", scaleMargins: { top: 0.08, bottom: 0.08 } },
-      timeScale: { borderColor: "#252d39", timeVisible: false, rightOffset: container.current.clientWidth < 640 ? 5 : 8 },
+      timeScale: { borderColor: "#252d39", timeVisible: false, rightOffset: rightWhitespaceBars },
       handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
       handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: { time: true, price: false }, axisDoubleClickReset: true },
       localization: { locale: "zh-CN" },
@@ -63,7 +64,7 @@ export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevel
       }
     }
     chart.timeScale().fitContent();
-    chart.timeScale().applyOptions({ rightOffset: container.current.clientWidth < 640 ? 5 : 8 });
+    chart.timeScale().applyOptions({ rightOffset: rightWhitespaceBars });
     chart.subscribeCrosshairMove((param) => {
       const key = chartTimeKey(param.time);
       if (key) setActivePoint(dataByDate.get(key) ?? data.at(-1) ?? null);

@@ -35,18 +35,26 @@ export class OnclickMediaProvider implements MarketDataProvider {
     const warnings: string[] = [];
 
     for (const [from, to] of chunks(start, addDays(end, 1))) {
-      const raw = await this.client.get("/stock-data/v2/adj/", {
-        ticker: symbol,
-        from,
-        to,
-        extended: "false",
-        bar_size: "1d",
-        data: "ohlcv",
-        output: "json",
-      });
-      const mapped = mapStockBars(raw, symbol);
-      records.push(...mapped.records.filter((row) => row.tradeDate >= start && row.tradeDate <= end));
-      warnings.push(...mapped.warnings);
+      try {
+        const raw = await this.client.get("/stock-data/v2/adj/", {
+          ticker: symbol,
+          from,
+          to,
+          extended: "false",
+          bar_size: "1d",
+          data: "ohlcv",
+          output: "json",
+        });
+        const mapped = mapStockBars(raw, symbol);
+        records.push(...mapped.records.filter((row) => row.tradeDate >= start && row.tradeDate <= end));
+        warnings.push(...mapped.warnings);
+      } catch (error) {
+        if (error instanceof OnclickMediaError && error.status === 404) {
+          warnings.push(`No stock bars were available from ${from} to ${to}`);
+          continue;
+        }
+        throw error;
+      }
     }
 
     const byDate = new Map(records.map((record) => [record.tradeDate, record]));
@@ -77,8 +85,23 @@ export class OnclickMediaProvider implements MarketDataProvider {
   }
 
   async getLatestAvailableStockDate(symbol: SupportedSymbol) {
-    const raw = await this.client.get("/stock-data/v2/list/", { ticker: symbol, list: "date" });
-    return sortedDates(raw).at(-1) ?? null;
+    try {
+      const raw = await this.client.get("/stock-data/v2/list/", { ticker: symbol, list: "date" });
+      return sortedDates(raw).at(-1) ?? null;
+    } catch (error) {
+      if (!(error instanceof OnclickMediaError) || error.status !== 404) throw error;
+      const end = todayYmd();
+      const raw = await this.client.get("/stock-data/v2/adj/", {
+        ticker: symbol,
+        from: addDays(end, -14),
+        to: addDays(end, 1),
+        extended: "false",
+        bar_size: "1d",
+        data: "ohlcv",
+        output: "json",
+      });
+      return mapStockBars(raw, symbol).records.at(-1)?.tradeDate ?? null;
+    }
   }
 
   async getLatestAvailableOptionDate(symbol: SupportedSymbol) {

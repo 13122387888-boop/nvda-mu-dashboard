@@ -18,6 +18,8 @@ export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevel
       grid: { vertLines: { color: "#1b222d" }, horzLines: { color: "#1b222d" } },
       rightPriceScale: { borderColor: "#252d39", scaleMargins: { top: 0.08, bottom: 0.08 } },
       timeScale: { borderColor: "#252d39", timeVisible: false },
+      handleScroll: { mouseWheel: false, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: false },
+      handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: { time: true, price: false }, axisDoubleClickReset: true },
       localization: { locale: "zh-CN" },
     });
     const candles = chart.addSeries(CandlestickSeries, {

@@ -94,7 +94,7 @@ export function TrendDeviation({
 
 export function MomentumVisual({ rsi, realizedVolatility }: { rsi: NullableNumber; realizedVolatility: NullableNumber }) {
   const rsiPosition = rsi === null ? 50 : clamp(rsi, 0, 100);
-  const rsiLabel = rsi === null ? "暂无数据" : rsi >= 70 ? "偏热" : rsi <= 30 ? "偏冷" : "中性区间";
+  const rsiLabel = rsi === null ? "暂无数据" : rsi >= 70 ? "偏热" : rsi <= 30 ? "偏冷" : rsi >= 55 ? "偏强" : rsi <= 45 ? "偏弱" : "中性";
   const rvProgress = realizedVolatility === null ? 0 : clamp(realizedVolatility * 100, 0, 100);
 
   return (
@@ -110,6 +110,35 @@ export function MomentumVisual({ rsi, realizedVolatility }: { rsi: NullableNumbe
         </div>
         <div className="volatility-copy"><span>已实现波动率</span><strong>过去20个交易日</strong><small>按日收益率年化计算</small></div>
       </div>
+    </div>
+  );
+}
+
+export function MomentumInformation({ rsi, realizedVolatility, atmIv }: { rsi: NullableNumber; realizedVolatility: NullableNumber; atmIv: NullableNumber }) {
+  const maxVol = Math.max(realizedVolatility ?? 0, atmIv ?? 0, 0.01);
+  const dailyProxy = realizedVolatility === null ? null : realizedVolatility / Math.sqrt(252);
+  const ratio = realizedVolatility === null || realizedVolatility <= 0 || atmIv === null ? null : atmIv / realizedVolatility;
+  const spread = realizedVolatility === null || atmIv === null ? null : atmIv - realizedVolatility;
+  const rsiState = rsi === null ? "数据不足" : rsi >= 70 ? "动量偏热" : rsi <= 30 ? "动量偏冷" : rsi >= 55 ? "动量偏强" : rsi <= 45 ? "动量偏弱" : "动量中性";
+  const pricingState = ratio === null ? "数据不足" : ratio >= 1.2 ? "隐含波动较高" : ratio <= 0.8 ? "隐含波动较低" : "两者接近";
+
+  return (
+    <div className="visual-card momentum-information">
+      <div className="visual-card-heading">
+        <div><span>VOLATILITY PRICING</span><strong>波动定价与可读信息</strong></div>
+        <small>IV 与 RV 仅作定价比较</small>
+      </div>
+      <div className="volatility-bars" role="img" aria-label={`实现波动率 ${percent(realizedVolatility)}，平值隐含波动率 ${percent(atmIv)}`}>
+        <div><span>过去20日实际波动 RV20</span><b>{percent(realizedVolatility)}</b><i><em style={{ width: `${((realizedVolatility ?? 0) / maxVol) * 100}%` }} /></i></div>
+        <div><span>最近到期平值期权 ATM IV</span><b>{percent(atmIv)}</b><i><em className="implied" style={{ width: `${((atmIv ?? 0) / maxVol) * 100}%` }} /></i></div>
+      </div>
+      <div className="momentum-info-grid">
+        <article><span>走势是否过热</span><strong>{rsiState}</strong><p>RSI14 为 {number(rsi)}；70以上偏热，30以下偏冷，中间区域用于观察强弱变化。</p></article>
+        <article><span>近期日波动参考</span><strong>{dailyProxy === null ? "—" : `约 ±${percent(dailyProxy)}`}</strong><p>由 RV20 ÷ √252 折算，只是历史日波动尺度，不是下一交易日预测区间。</p></article>
+        <article><span>期权如何定价波动</span><strong>{pricingState}</strong><p>{ratio === null ? "需要同时具备 ATM IV 与 RV20。" : `IV / RV 为 ${ratio.toFixed(2)} 倍，差值 ${spread! >= 0 ? "+" : ""}${(spread! * 100).toFixed(1)} 个百分点。`}</p></article>
+      </div>
+      <p className="momentum-takeaway"><b>可以获取：</b>当前动量位置、过去20日实际波动尺度，以及期权隐含波动相对近期实际波动是更高、更低还是接近。</p>
+      <small>隐含波动较高不等于期权一定昂贵，较低也不等于一定便宜；到期时间、事件风险和波动偏斜仍会影响期权价格。</small>
     </div>
   );
 }

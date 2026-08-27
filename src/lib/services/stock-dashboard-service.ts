@@ -4,8 +4,8 @@ import { movingAverageSeries } from "@/lib/indicators/moving-average";
 import type { SupportedSymbol } from "@/lib/providers/types";
 
 export const STOCKS: Record<SupportedSymbol, { name: string; accent: string }> = {
-  NVDA: { name: "NVIDIA", accent: "#76b900" },
-  MU: { name: "Micron Technology", accent: "#4f8cff" },
+  NVDA: { name: "英伟达 NVIDIA", accent: "#76b900" },
+  MU: { name: "美光科技 Micron", accent: "#4f8cff" },
 };
 
 export const SUPPORTED_SYMBOLS = Object.keys(STOCKS) as SupportedSymbol[];

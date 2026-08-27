@@ -14,9 +14,9 @@ export function percent(value: number | null, alreadyPercent = false): string {
 }
 
 export const STATUS_LABELS: Record<string, string> = {
-  STRONG_BULLISH: "Strong Bullish",
-  BULLISH: "Bullish",
-  NEUTRAL: "Neutral",
-  BEARISH: "Bearish",
-  INSUFFICIENT_DATA: "Insufficient Data",
+  STRONG_BULLISH: "强势偏多",
+  BULLISH: "偏多",
+  NEUTRAL: "中性",
+  BEARISH: "偏空",
+  INSUFFICIENT_DATA: "数据不足",
 };

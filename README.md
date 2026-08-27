@@ -1,13 +1,14 @@
 # US Equity EOD Research Dashboard
 
-A product-validation dashboard for a configuration-driven US equity watchlist. The current pool covers **NVDA, MU, SNDK, MSFT, TSLA, and DRAM**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
+A product-validation dashboard for a configuration-driven US equity watchlist. The current pool covers **NVDA, MU, SNDK, MSFT, TSLA, DRAM, and SOXX**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
 
 This is research software, not a real-time feed or investment-advice product.
 
 ## Architecture
 
 ```text
-OnclickMedia → Provider adapter → Supabase PostgreSQL → Indicators
+OnclickMedia daily sync ────────────────→ Supabase PostgreSQL → Indicators
+Longbridge verified history backfill ──→                     ↓
                                                        ↓
                                Next.js UI ← Dashboard service → /api/v1
                                                        ↑
@@ -35,7 +36,7 @@ The adapter uses the current official public endpoints documented at [OnclickMed
 
 The provider is called only through `MarketDataProvider`. The adapter converts `call`/`put` to `CALL`/`PUT`, validates every number and market date, keeps nullable quote/Greek fields, stores the provider `contract_id`, and normalizes percentage-form IV (for example `45`) to decimal IV (`0.45`). Current API responses already use decimal IV in the nested `greeks` object.
 
-The public/free API needs no key. Its documented option-chain response is limited to the 16 closest-to-the-money strikes per expiration and shorter history; a level-2 key is needed for the full database. Any coverage warning is recorded on the sync run. The app never substitutes another provider. OnclickMedia v2 daily bars are interval-end stamped at midnight on the following calendar date; the adapter maps that label back to the US market trade date and tests this behavior.
+The public/free API needs no key. Its documented option-chain response is limited to the 16 closest-to-the-money strikes per expiration and shorter history; a level-2 key is needed for the full database. Any coverage warning is recorded on the sync run. OnclickMedia remains the automated daily source. When its adjusted-history coverage has gaps, `npm run backfill:longbridge` can add only missing daily bars from the locally authenticated Longbridge CLI; stored rows retain their source label. OnclickMedia v2 daily bars are interval-end stamped at midnight on the following calendar date; the adapter maps that label back to the US market trade date and tests this behavior.
 
 ## 1. Create a Supabase project
 
@@ -89,6 +90,15 @@ npm run sync:data
 ```
 
 Both commands are idempotent. They use unique keys, bulk conflict-safe inserts, and recent-bar upserts; isolate failures by symbol; preserve successful symbols when another fails; and write a `SUCCESS`, `PARTIAL`, or `FAILED` `sync_run`. Logs never print connection URLs or API keys. Run `npm run audit:data` to verify yearly coverage and latest stock, option, and metric dates.
+
+For a verified one-off current-year history repair on a trusted machine with the Longbridge CLI configured:
+
+```bash
+npm run backfill:longbridge -- all 2026-01-01 2026-12-31
+npm run sync:data
+```
+
+The backfill inserts missing dates only and never overwrites existing OnclickMedia rows. It is not part of the Vercel runtime or Cron job.
 
 Vercel Cron calls `GET /api/cron/sync` at `23:30 UTC` on weekdays. It requires:
 
@@ -145,11 +155,11 @@ No push or public repository is created automatically. If a remote already exist
    npm run db:deploy
    ```
 
-4. Deploy the Next.js project. Build does not call Supabase or OnclickMedia.
+4. Deploy the Next.js project. Build does not call Supabase or either market-data source.
 5. Before launch, run `npm run sync:bootstrap` once against the production Supabase project.
 6. Verify `/api/health`, at least two configured stock pages, and one authorized Cron call.
 
-Vercel's default domain is sufficient. A custom domain is optional later. The deployed app depends only on Vercel, Supabase, and OnclickMedia, so the local computer can be off.
+Vercel's default domain is sufficient. A custom domain is optional later. The deployed app depends only on Vercel, Supabase, and OnclickMedia for runtime updates; optional Longbridge backfills are already persisted in Supabase, so the local computer can be off.
 
 ## Troubleshooting
 
@@ -164,4 +174,4 @@ Vercel's default domain is sufficient. A custom domain is optional later. The de
 
 ## Disclaimer
 
-EOD data for research and product validation only. Not investment advice. Data source: OnclickMedia.
+EOD data for research and product validation only. Not investment advice. Data sources: OnclickMedia and Longbridge.

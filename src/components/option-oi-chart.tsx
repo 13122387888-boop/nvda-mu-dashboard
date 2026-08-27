@@ -32,9 +32,9 @@ export function OptionOiChart({ data }: { data: Point[] }) {
           </div>
         ))}
       </div>
-      <div className="oi-caption"><span>完整展示 {data.length} 个行权价</span><b>Call ↑　Put ↓</b></div>
+      <div className="oi-caption"><span>完整展示 {data.length} 个行权价</span><b>看涨（Call）↑　看跌（Put）↓</b></div>
       <div className={`oi-readout ${selected ? "active" : ""}`} aria-live="polite">
-        {selected ? <><b>行权价 {selected.strike}</b><span>Call {formatter.format(selected.callOi)} · {total ? Math.round(selected.callOi / total * 100) : 0}%</span><span>Put {formatter.format(selected.putOi)} · {total ? Math.round(selected.putOi / total * 100) : 0}%</span></> : <span>点击任一柱形查看精确未平仓量</span>}
+        {selected ? <><b>行权价 {selected.strike}</b><span>看涨 {formatter.format(selected.callOi)} · {total ? Math.round(selected.callOi / total * 100) : 0}%</span><span>看跌 {formatter.format(selected.putOi)} · {total ? Math.round(selected.putOi / total * 100) : 0}%</span></> : <span>点击任一柱形查看精确未平仓量</span>}
       </div>
     </div>
   );

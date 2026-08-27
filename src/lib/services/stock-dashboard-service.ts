@@ -5,7 +5,7 @@ import { calculateGammaExposureProxy } from "@/lib/indicators/options/gamma-expo
 import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics";
 import { putCallOpenInterest } from "@/lib/indicators/options/put-call-ratio";
 import { movingAverageSeries } from "@/lib/indicators/moving-average";
-import { calculateTrendScore } from "@/lib/indicators/stock-metrics";
+import { calculateTrendConfidence, calculateTrendScore } from "@/lib/indicators/stock-metrics";
 import { realizedVolatility } from "@/lib/indicators/realized-volatility";
 import { wilderRsi } from "@/lib/indicators/rsi";
 import type { OptionContractRecord, SupportedSymbol } from "@/lib/providers/types";
@@ -230,7 +230,7 @@ async function loadStockCards() {
   }));
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v3"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v4"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();
@@ -263,6 +263,10 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
   const currentRsi14 = numberOrNull(metrics.rsi14);
   const currentRv20 = numberOrNull(metrics.rv20);
   const currentMa20 = numberOrNull(metrics.ma20);
+  const currentMa50 = numberOrNull(metrics.ma50);
+  const currentMa200 = numberOrNull(metrics.ma200);
+  const trendScore = calculateTrendScore({ close, ma20: currentMa20, ma50: currentMa50, ma200: currentMa200, rsi14: currentRsi14 });
+  const trendConfidence = calculateTrendConfidence({ ma20: currentMa20, ma50: currentMa50, ma200: currentMa200, historyCount: calculationHistory.length });
   const historicalPositions = buildHistoricalPositions(closes, { rsi14: currentRsi14, rv20: currentRv20, ma20: currentMa20 });
   const optionWindows = Object.keys(OPTION_WINDOW_LIMITS) as OptionWindow[];
   const optionWindowCounts = Object.fromEntries(optionWindows.map((window) => {
@@ -312,6 +316,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
       name: STOCKS[symbol].name,
       accent: STOCKS[symbol].accent,
       stockDate: dateToYmd(metrics.tradeDate),
+      stockProviders: [...new Set(calculationHistory.map((row) => row.provider))].sort(),
       optionsDate: optionRows.length && metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null,
       optionsExpiration: pricingMetrics.optionsExpiration,
       optionWindow,
@@ -325,10 +330,13 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
       },
       trend: {
         ma20: currentMa20,
-        ma50: numberOrNull(metrics.ma50),
-        ma200: numberOrNull(metrics.ma200),
+        ma50: currentMa50,
+        ma200: currentMa200,
         rsi14: currentRsi14,
         rv20: currentRv20,
+        score: trendScore,
+        confidence: trendConfidence,
+        historyCount: calculationHistory.length,
       },
       options: {
         expectedMove: pricingMetrics.expectedMove,
@@ -354,7 +362,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v2"],
+  ["stock-dashboard-bundle-v3"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

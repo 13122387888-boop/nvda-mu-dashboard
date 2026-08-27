@@ -13,7 +13,7 @@ export function Header() {
             {SUPPORTED_SYMBOLS.map((symbol) => <Link href={`/stocks/${symbol}`} key={symbol}><b>{symbol}</b><span>{STOCKS[symbol].shortName}</span></Link>)}
           </div>
         </details>
-        <span className="source-pill">数据源 · OnclickMedia</span>
+        <span className="source-pill">数据源 · OnclickMedia + 长桥</span>
       </nav>
     </header>
   );
@@ -23,7 +23,7 @@ export function Footer() {
   return (
     <footer className="disclaimer">
       <span>收盘数据仅用于研究与产品验证。</span>
-      <span>数据源：OnclickMedia · 不构成投资建议。</span>
+      <span>数据源：OnclickMedia + 长桥 · 不构成投资建议。</span>
     </footer>
   );
 }

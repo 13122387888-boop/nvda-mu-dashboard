@@ -4,6 +4,13 @@ import { realizedVolatility } from "./realized-volatility";
 import { wilderRsi } from "./rsi";
 
 export type MarketStatusValue = "STRONG_BULLISH" | "BULLISH" | "NEUTRAL" | "BEARISH" | "INSUFFICIENT_DATA";
+export type TrendConfidenceLevel = "HIGH" | "MEDIUM" | "LOW";
+
+export type TrendConfidence = {
+  level: TrendConfidenceLevel;
+  label: string;
+  reason: string;
+};
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
@@ -35,6 +42,22 @@ export function calculateTrendScore(input: {
     0,
     100,
   ));
+}
+
+export function calculateTrendConfidence(input: {
+  ma20: number | null;
+  ma50: number | null;
+  ma200: number | null;
+  historyCount: number;
+}): TrendConfidence {
+  const { ma20, ma50, ma200, historyCount } = input;
+  if (ma20 !== null && ma50 !== null && ma200 !== null && historyCount >= 200) {
+    return { level: "HIGH", label: "高", reason: "长中短期均线均有足够历史样本" };
+  }
+  if (ma20 !== null && ma50 !== null && historyCount >= 50) {
+    return { level: "MEDIUM", label: "中", reason: ma200 === null ? "长期均线样本尚未满200个交易日" : "可用历史样本仍在积累" };
+  }
+  return { level: "LOW", label: "低", reason: "有效历史不足50个交易日" };
 }
 
 export function classifyMarketStatus(input: {

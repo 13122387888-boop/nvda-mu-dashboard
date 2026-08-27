@@ -43,7 +43,7 @@ export function GammaExposureVisual({
         <i className="gamma-axis" />
         <div className="gamma-side call"><i style={{ width: `${(callGamma / max) * 100}%` }} /></div>
       </div>
-      <div className="gamma-labels"><span>Put 负向代理 <b>{compactMoney(putGamma)}</b></span><span>Call 正向代理 <b>{compactMoney(callGamma)}</b></span></div>
+      <div className="gamma-labels"><span>看跌（Put）负向代理 <b>{compactMoney(putGamma)}</b></span><span>看涨（Call）正向代理 <b>{compactMoney(callGamma)}</b></span></div>
       <p><b>结构结论：</b>{state.conclusion}</p>
       <small>口径说明：按 Call 为正、Put 为负的公开 OI 约定估算。公开未平仓量无法识别实际持仓者及其多空方向，因此这不是做市商真实 Gamma，只用于观察结构。</small>
     </div>
@@ -126,7 +126,7 @@ export function MomentumInformation({ rsi, realizedVolatility, atmIv }: { rsi: N
   return (
     <div className="visual-card momentum-information">
       <div className="visual-card-heading">
-        <div><span>VOLATILITY PRICING</span><strong>波动定价与可读信息</strong></div>
+        <div><span>波动定价</span><strong>隐含波动与实际波动</strong></div>
         <small>IV 与 RV 仅作定价比较</small>
       </div>
       <div className="volatility-bars" role="img" aria-label={`实现波动率 ${percent(realizedVolatility)}，平值隐含波动率 ${percent(atmIv)}`}>
@@ -206,16 +206,16 @@ export function PutCallVisual({ ratio, atmIv }: { ratio: NullableNumber; atmIv: 
   return (
     <div className="visual-card put-call-visual">
       <div className="visual-card-heading put-call-heading">
-        <div><MetricLabel metric="putCallOi">持仓结构</MetricLabel><strong>Call / Put 未平仓量</strong></div>
-        <b>{number(ratio)} <small>Put / Call</small></b>
+        <div><MetricLabel metric="putCallOi">持仓结构</MetricLabel><strong>看涨 / 看跌未平仓量</strong></div>
+        <b>{number(ratio)} <small>未平仓量比（Put/Call）</small></b>
       </div>
       <div className="put-call-bar" role="img" aria-label={`Call 占 ${Math.round(callShare * 100)}%，Put 占 ${Math.round(putShare * 100)}%`}>
         <i className="call" style={{ width: `${callShare * 100}%` }} />
         <i className="put" style={{ width: `${putShare * 100}%` }} />
       </div>
       <div className="put-call-sides">
-        <div className="call"><span>CALL</span><strong>{Math.round(callShare * 100)}%</strong><small>看涨未平仓量占比</small></div>
-        <div className="put"><span>PUT</span><strong>{Math.round(putShare * 100)}%</strong><small>看跌未平仓量占比</small></div>
+        <div className="call"><span>看涨（Call）</span><strong>{Math.round(callShare * 100)}%</strong><small>看涨未平仓量占比</small></div>
+        <div className="put"><span>看跌（Put）</span><strong>{Math.round(putShare * 100)}%</strong><small>看跌未平仓量占比</small></div>
       </div>
       <small className="put-call-note">平值隐含波动率 {percent(atmIv)}</small>
     </div>

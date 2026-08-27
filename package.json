@@ -17,6 +17,7 @@
     "db:studio": "prisma studio",
     "sync:bootstrap": "tsx scripts/sync.ts bootstrap",
     "sync:data": "tsx scripts/sync.ts incremental",
+    "backfill:longbridge": "tsx scripts/backfill-longbridge.ts",
     "audit:data": "tsx scripts/audit-data.ts",
     "postinstall": "prisma generate"
   },

@@ -19,7 +19,7 @@ export function HistoricalPosition({ positions }: { positions: { rsi14: Position
   ];
   return (
     <section className="historical-position" aria-labelledby="historical-position-title">
-      <div className="historical-heading"><div><span>ONE-YEAR CONTEXT</span><h3 id="historical-position-title">当前读数的历史位置</h3></div><p>高低只表示历史排序，不表示好坏。</p></div>
+      <div className="historical-heading"><div><span>一年历史对照</span><h3 id="historical-position-title">当前读数的历史位置</h3></div><p>高低只表示历史排序，不表示好坏。</p></div>
       <div className="historical-grid">
         {items.map((item) => (
           <article key={item.label}>

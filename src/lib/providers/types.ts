@@ -12,7 +12,7 @@ export interface StockDailyRecord {
   close: number;
   adjustedClose: number | null;
   volume: number | null;
-  provider: "ONCLICKMEDIA";
+  provider: "ONCLICKMEDIA" | "LONGBRIDGE";
 }
 
 export interface OptionContractRecord {

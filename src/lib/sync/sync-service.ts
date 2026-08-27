@@ -5,7 +5,7 @@ import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics"
 import { calculateStockMetrics } from "@/lib/indicators/stock-metrics";
 import { OnclickMediaProvider } from "@/lib/providers/onclickmedia/onclickmedia-provider";
 import type { OptionContractRecord, StockDailyRecord, SupportedSymbol } from "@/lib/providers/types";
-import { SUPPORTED_SYMBOLS } from "@/lib/stocks";
+import { STOCK_HISTORY_START_DATES, SUPPORTED_SYMBOLS } from "@/lib/stocks";
 
 const SYMBOLS: SupportedSymbol[] = SUPPORTED_SYMBOLS;
 const CREATE_BATCH_SIZE = 200;
@@ -127,7 +127,9 @@ async function syncSymbol(symbol: SupportedSymbol, mode: "bootstrap" | "incremen
     const existing = mode === "incremental"
       ? await prisma.stockDaily.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" }, select: { tradeDate: true } })
       : null;
-    const startDate = existing ? addDays(dateToYmd(existing.tradeDate), -7) : addDays(latestAvailable, -450);
+    const requestedStart = existing ? addDays(dateToYmd(existing.tradeDate), -7) : addDays(latestAvailable, -450);
+    const knownHistoryStart = STOCK_HISTORY_START_DATES[symbol];
+    const startDate = knownHistoryStart && requestedStart < knownHistoryStart ? knownHistoryStart : requestedStart;
     const result = await provider.getStockDailyHistory({ symbol, startDate, endDate: latestAvailable });
     await upsertStockRows(result.records);
     stockRows = result.records.length;

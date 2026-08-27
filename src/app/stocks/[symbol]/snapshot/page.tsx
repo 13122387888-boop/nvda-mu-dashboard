@@ -55,7 +55,7 @@ export default async function SnapshotPage({ params, searchParams }: { params: P
       <Header />
       <div className="snapshot-toolbar"><Link href={`/stocks/${symbol}${backQuery}`}>← 返回完整研究页</Link><SnapshotActions data={exportData} /></div>
       <section className="snapshot-card" aria-label={`${symbol} 研究快照`}>
-        <header><div><span>RESEARCH SNAPSHOT</span><b>{symbol}</b><h1>{dashboard.name}</h1></div><div><small>股票数据 {dashboard.stockDate}</small><small>期权数据 {dashboard.optionsDate ?? "暂无"}</small><small>期限 {dashboard.optionWindowLabel}</small><small>定价到期 {dashboard.optionsExpiration ?? "暂无"}</small></div></header>
+        <header><div><span>研究快照</span><b>{symbol}</b><h1>{dashboard.name}</h1></div><div><small>股票数据 {dashboard.stockDate}</small><small>期权数据 {dashboard.optionsDate ?? "暂无"}</small><small>期限 {dashboard.optionWindowLabel}</small><small>定价到期 {dashboard.optionsExpiration ?? "暂无"}</small></div></header>
         <div className="snapshot-quote"><strong>{money(dashboard.quote.close)}</strong><span className={change !== null && change >= 0 ? "positive" : "negative"}>{exportData.change}</span></div>
         <p className="snapshot-summary">{brief.summary}</p>
         <div className="snapshot-metrics">

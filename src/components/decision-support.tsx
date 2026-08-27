@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import { BriefLink } from "@/components/brief-link";
 import { buildObservationScenarios, buildResearchBrief, type DecisionSupportInput, type ScenarioInput } from "@/lib/indicators/decision-support";
 import { money, percent } from "@/lib/format";
 
@@ -36,6 +37,12 @@ export function DataScope({
 
 export function ResearchBrief({ input }: { input: DecisionSupportInput }) {
   const brief = buildResearchBrief(input);
+  const targets: Record<string, string> = {
+    "趋势": "price-trend",
+    "动量": "momentum-overview",
+    "波动定价": "momentum-pricing",
+    "期权结构": "options-gamma",
+  };
   return (
     <section className="research-brief" aria-labelledby="research-brief-title">
       <div className="brief-heading">
@@ -45,9 +52,9 @@ export function ResearchBrief({ input }: { input: DecisionSupportInput }) {
       <p className="brief-summary">{brief.summary}</p>
       <div className="brief-grid">
         {brief.items.map((item) => (
-          <article className={`brief-item ${item.tone}`} key={item.label}>
+          <BriefLink targetId={targets[item.label]} className={`brief-item ${item.tone}`} key={item.label}>
             <span>{item.label}</span><strong>{item.state}</strong><p>{item.detail}</p>
-          </article>
+          </BriefLink>
         ))}
       </div>
       <small>只描述当前公开日终数据 · 不构成投资建议 · 数据变化后结论会重新计算</small>

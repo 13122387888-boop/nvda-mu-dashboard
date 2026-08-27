@@ -1,16 +1,29 @@
 "use client";
 
-import { useRef, useState, type CSSProperties, type ReactNode, type TouchEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type TouchEvent } from "react";
 
 type PagerTab = { id: string; label: string; content: ReactNode };
 
 export function SectionPager({ label, tabs, accent }: { label: string; tabs: PagerTab[]; accent?: string }) {
   const [active, setActive] = useState(0);
   const gesture = useRef<{ x: number; y: number } | null>(null);
+  const root = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleNavigation = (event: Event) => {
+      const tabId = (event as CustomEvent<{ tabId?: string }>).detail?.tabId;
+      const index = tabs.findIndex((tab) => tab.id === tabId);
+      if (index < 0) return;
+      setActive(index);
+      window.requestAnimationFrame(() => root.current?.scrollIntoView({ behavior: "smooth", block: "start" }));
+    };
+    window.addEventListener("dashboard:navigate", handleNavigation);
+    return () => window.removeEventListener("dashboard:navigate", handleNavigation);
+  }, [tabs]);
 
   const handleTouchStart = (event: TouchEvent<HTMLDivElement>) => {
     const target = event.target as Element;
-    if (target.closest(".price-chart, .oi-scroll, .level-map-scroll")) {
+    if (target.closest(".price-chart, .level-map-scroll")) {
       gesture.current = null;
       return;
     }
@@ -29,7 +42,7 @@ export function SectionPager({ label, tabs, accent }: { label: string; tabs: Pag
   };
 
   return (
-    <div className="section-pager" style={accent ? { "--module-accent": accent } as CSSProperties : undefined}>
+    <div ref={root} className="section-pager" style={accent ? { "--module-accent": accent } as CSSProperties : undefined}>
       <div className="section-tabs" role="tablist" aria-label={label}>
         {tabs.map((tab, index) => (
           <button type="button" role="tab" aria-selected={active === index} aria-controls={`${tab.id}-panel`} id={`${tab.id}-tab`} className={active === index ? "active" : ""} onClick={() => setActive(index)} key={tab.id}>

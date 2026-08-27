@@ -35,6 +35,23 @@ export type ObservationScenario = {
   tone: BriefTone;
 };
 
+export type ObservationChecklistItem = {
+  label: string;
+  status: string;
+  condition: string;
+  detail: string;
+  tone: BriefTone;
+};
+
+export type ObservationChecklistInput = {
+  close: number;
+  callWall: number | null;
+  putWall: number | null;
+  expectedUpper: number | null;
+  expectedLower: number | null;
+  gammaRegime: GammaRegime;
+};
+
 const price = (value: number) => `$${value.toFixed(2)}`;
 
 function trendBrief(status: MarketStatusValue): BriefItem {
@@ -153,4 +170,44 @@ export function buildObservationScenarios(input: ScenarioInput): ObservationScen
     upside,
     downside,
   ];
+}
+
+export function buildObservationChecklist(input: ObservationChecklistInput): ObservationChecklistItem[] {
+  const { close, callWall, putWall, expectedUpper, expectedLower, gammaRegime } = input;
+  const distance = (level: number) => Math.abs(level - close) / close;
+  const upside: ObservationChecklistItem = callWall === null
+    ? { label: "上方条件", status: "数据不足", condition: "暂无看涨墙", detail: "暂不生成上方关键位观察。", tone: "neutral" }
+    : close >= callWall
+      ? { label: "上方条件", status: "已经越过", condition: `收盘价已位于 ${price(callWall)} 看涨墙上方`, detail: "下一步观察收盘能否继续保持在该价位上方。", tone: "positive" }
+      : distance(callWall) <= 0.015
+        ? { label: "上方条件", status: "正在接近", condition: `距离 ${price(callWall)} 看涨墙不足 1.5%`, detail: "仍需等待日线收盘站上，盘中触及不视为确认。", tone: "warning" }
+        : { label: "上方条件", status: "尚未触发", condition: `日线收盘站上 ${price(callWall)}`, detail: `当前距离约 ${(distance(callWall) * 100).toFixed(1)}%。`, tone: "neutral" };
+
+  const downside: ObservationChecklistItem = putWall === null
+    ? { label: "下方条件", status: "数据不足", condition: "暂无看跌墙", detail: "暂不生成下方关键位观察。", tone: "neutral" }
+    : close <= putWall
+      ? { label: "下方条件", status: "已经跌破", condition: `收盘价已位于 ${price(putWall)} 看跌墙下方`, detail: "下一步观察收盘能否重新回到该价位上方。", tone: "negative" }
+      : distance(putWall) <= 0.015
+        ? { label: "下方条件", status: "正在接近", condition: `距离 ${price(putWall)} 看跌墙不足 1.5%`, detail: "仍需等待日线收盘跌破，盘中触及不视为确认。", tone: "warning" }
+        : { label: "下方条件", status: "尚未触发", condition: `日线收盘跌破 ${price(putWall)}`, detail: `当前距离约 ${(distance(putWall) * 100).toFixed(1)}%。`, tone: "neutral" };
+
+  const gammaStates: Record<GammaRegime, { status: string; detail: string; tone: BriefTone }> = {
+    POSITIVE: { status: "正 Gamma 代理", detail: "关键位附近优先观察区间与均值回归特征。", tone: "positive" },
+    NEGATIVE: { status: "负 Gamma 代理", detail: "价格离开关键位后优先警惕波动放大。", tone: "negative" },
+    NEUTRAL: { status: "Gamma 中性", detail: "当前结构没有给出清晰的波动抑制或放大倾向。", tone: "neutral" },
+    UNAVAILABLE: { status: "数据不足", detail: "Greeks 或持仓数据不足，暂不判断 Gamma 环境。", tone: "neutral" },
+  };
+  const gamma = gammaStates[gammaRegime];
+  const range = expectedLower === null || expectedUpper === null
+    ? "预期区间数据不足"
+    : `${price(expectedLower)}–${price(expectedUpper)}`;
+  const environment: ObservationChecklistItem = {
+    label: "波动环境",
+    status: gamma.status,
+    condition: `当前到期预期区间 ${range}`,
+    detail: gamma.detail,
+    tone: gamma.tone,
+  };
+
+  return [upside, downside, environment];
 }

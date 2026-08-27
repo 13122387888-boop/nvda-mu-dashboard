@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildObservationScenarios, buildResearchBrief } from "./decision-support";
+import { buildObservationChecklist, buildObservationScenarios, buildResearchBrief } from "./decision-support";
 
 describe("buildResearchBrief", () => {
   it("summarizes trend, momentum, volatility pricing and gamma structure", () => {
@@ -52,5 +52,22 @@ describe("buildObservationScenarios", () => {
     const missing = buildObservationScenarios({ close: 100, callWall: null, putWall: null, marketStatus: "NEUTRAL", gammaRegime: "UNAVAILABLE" });
     expect(missing[1].title).toBe("看涨墙数据不足");
     expect(missing[2].title).toBe("看跌墙数据不足");
+  });
+});
+
+describe("buildObservationChecklist", () => {
+  it("marks nearby and triggered wall conditions", () => {
+    const nearby = buildObservationChecklist({ close: 100, callWall: 101, putWall: 90, expectedUpper: 105, expectedLower: 95, gammaRegime: "NEGATIVE" });
+    expect(nearby[0].status).toBe("正在接近");
+    expect(nearby[2].status).toBe("负 Gamma 代理");
+    const triggered = buildObservationChecklist({ close: 112, callWall: 110, putWall: 90, expectedUpper: 115, expectedLower: 95, gammaRegime: "POSITIVE" });
+    expect(triggered[0].status).toBe("已经越过");
+  });
+
+  it("does not invent wall observations when data is missing", () => {
+    const result = buildObservationChecklist({ close: 100, callWall: null, putWall: null, expectedUpper: null, expectedLower: null, gammaRegime: "UNAVAILABLE" });
+    expect(result[0].status).toBe("数据不足");
+    expect(result[1].status).toBe("数据不足");
+    expect(result[2].condition).toContain("数据不足");
   });
 });

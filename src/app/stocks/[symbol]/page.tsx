@@ -6,6 +6,7 @@ import { DataScope, KeyDistanceMap, ResearchBrief, ScenarioObservation } from "@
 import { OptionOiChart } from "@/components/option-oi-chart";
 import { PriceChart } from "@/components/price-chart";
 import { ExpectedRangeVisual, GammaExposureVisual, MomentumInformation, MomentumVisual, PutCallVisual, TrendDeviation } from "@/components/indicator-visuals";
+import { MetricHelp, MetricLabel, type MetricHelpKey } from "@/components/metric-help";
 import { SectionPager } from "@/components/section-pager";
 import { Footer, Header } from "@/components/site-chrome";
 import { money, percent } from "@/lib/format";
@@ -22,8 +23,8 @@ export async function generateMetadata({ params }: { params: Promise<{ symbol: s
   };
 }
 
-function MetricCard({ label, value, note }: { label: string; value: string; note?: string }) {
-  return <div className="metric-card"><span>{label}</span><strong>{value}</strong>{note && <small>{note}</small>}</div>;
+function MetricCard({ label, value, note, help }: { label: string; value: string; note?: string; help?: MetricHelpKey }) {
+  return <div className="metric-card">{help ? <MetricLabel metric={help}>{label}</MetricLabel> : <span>{label}</span>}<strong>{value}</strong>{note && <small>{note}</small>}</div>;
 }
 
 function ModuleHeading({ index, kicker, title, description, canAnswer, cannotAnswer, accent, aside }: { index: string; kicker: string; title: string; description: string; canAnswer: string; cannotAnswer: string; accent: string; aside?: React.ReactNode }) {
@@ -61,7 +62,7 @@ export default async function StockPage({ params }: { params: Promise<{ symbol: 
       <section className="section-block"><ModuleHeading index="01" kicker="PRICE STRUCTURE" title="价格趋势与关键位" description="价格处在什么趋势，离重要期权价位还有多远。" canAnswer="趋势位置与关键价位距离" cannotAnswer="突破后的必然涨跌方向" accent="#57d68d" aside={<div className="legend"><i className="candle" />日K<i className="ma20" />20日均线<i className="ma50" />50日均线<i className="ma200" />200日均线</div>} />
         <SectionPager label="价格趋势与关键位视图" accent="#57d68d" tabs={[
           { id: "price-chart", label: "K线图", content: <div className="chart-panel"><div className="chart-gesture-note"><span>↔ 左右拖动查看历史</span><b>↕ 上下滑动页面</b></div><PriceChart data={dashboard.priceHistory} levels={{ maxPain: dashboard.options.maxPain, callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, expectedUpper: dashboard.options.expectedUpper, expectedLower: dashboard.options.expectedLower }} /></div> },
-          { id: "price-trend", label: "趋势位置", content: <><div className="metric-grid four"><MetricCard label="收盘价" value={money(dashboard.quote.close)} /><MetricCard label="20日均线" value={money(dashboard.trend.ma20)} /><MetricCard label="50日均线" value={money(dashboard.trend.ma50)} /><MetricCard label="200日均线" value={money(dashboard.trend.ma200)} /></div><TrendDeviation close={dashboard.quote.close} ma20={dashboard.trend.ma20} ma50={dashboard.trend.ma50} ma200={dashboard.trend.ma200} /></> },
+          { id: "price-trend", label: "趋势位置", content: <><div className="metric-grid four"><MetricCard label="收盘价" value={money(dashboard.quote.close)} /><MetricCard label="20日均线" value={money(dashboard.trend.ma20)} help="movingAverage" /><MetricCard label="50日均线" value={money(dashboard.trend.ma50)} help="movingAverage" /><MetricCard label="200日均线" value={money(dashboard.trend.ma200)} help="movingAverage" /></div><TrendDeviation close={dashboard.quote.close} ma20={dashboard.trend.ma20} ma50={dashboard.trend.ma50} ma200={dashboard.trend.ma200} /></> },
           { id: "price-distance", label: "关键距离", content: <KeyDistanceMap close={dashboard.quote.close} callWall={dashboard.options.callWall} putWall={dashboard.options.putWall} maxPain={dashboard.options.maxPain} expectedUpper={dashboard.options.expectedUpper} expectedLower={dashboard.options.expectedLower} expectedMove={dashboard.options.expectedMove} /> },
           { id: "price-scenarios", label: "情景观察", content: <ScenarioObservation input={{ close: dashboard.quote.close, callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, marketStatus: dashboard.quote.marketStatus, gammaRegime: dashboard.options.gammaExposure.regime }} /> },
         ]} />
@@ -79,7 +80,7 @@ export default async function StockPage({ params }: { params: Promise<{ symbol: 
           <SectionPager label="期权持仓结构视图" accent="#f0b45c" tabs={[
             { id: "options-range", label: "预期区间", content: <div className="options-visual-grid"><ExpectedRangeVisual close={dashboard.quote.close} lower={dashboard.options.expectedLower} upper={dashboard.options.expectedUpper} expectedMove={dashboard.options.expectedMove} expectedMovePct={dashboard.options.expectedMovePct} maxPain={dashboard.options.maxPain} callWall={dashboard.options.callWall} putWall={dashboard.options.putWall} /><PutCallVisual ratio={dashboard.options.putCallOi} atmIv={dashboard.options.atmIv} /></div> },
             { id: "options-gamma", label: "Gamma", content: <GammaExposureVisual {...dashboard.options.gammaExposure} /> },
-            { id: "options-oi", label: "未平仓量", content: <><div className="metric-grid options compact"><MetricCard label="最大痛点" value={money(dashboard.options.maxPain)} /><MetricCard label="看涨墙" value={money(dashboard.options.callWall)} /><MetricCard label="看跌墙" value={money(dashboard.options.putWall)} /><MetricCard label="平值隐含波动率" value={percent(dashboard.options.atmIv)} /></div><div className="chart-panel oi-panel"><div className="chart-title"><div><h3>按行权价分布的未平仓量</h3><small>同一价格轴 · Call 向上 / Put 向下</small></div><span><i className="call" />看涨 Call <i className="put" />看跌 Put</span></div><OptionOiChart data={dashboard.optionOpenInterest} /></div></> },
+            { id: "options-oi", label: "未平仓量", content: <><div className="metric-grid options compact"><MetricCard label="最大痛点" value={money(dashboard.options.maxPain)} help="maxPain" /><MetricCard label="看涨墙" value={money(dashboard.options.callWall)} help="callWall" /><MetricCard label="看跌墙" value={money(dashboard.options.putWall)} help="putWall" /><MetricCard label="平值隐含波动率" value={percent(dashboard.options.atmIv)} help="atmIv" /></div><div className="chart-panel oi-panel"><div className="chart-title"><div><div className="heading-with-help"><h3>按行权价分布的未平仓量</h3><MetricHelp metric="openInterest" /></div><small>同一价格轴 · Call 向上 / Put 向下</small></div><span><i className="call" />看涨 Call <i className="put" />看跌 Put</span></div><OptionOiChart data={dashboard.optionOpenInterest} /></div></> },
           ]} />
         </>}
       </section>

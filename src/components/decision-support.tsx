@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { BriefLink } from "@/components/brief-link";
+import { MetricLabel } from "@/components/metric-help";
 import { buildObservationScenarios, buildResearchBrief, type DecisionSupportInput, type ScenarioInput } from "@/lib/indicators/decision-support";
 import { money, percent } from "@/lib/format";
 
@@ -117,10 +118,10 @@ export function KeyDistanceMap({
         </div>
       </div>
       <div className="distance-grid">
-        <div><span>看涨墙相对现价</span><strong>{relative(callWall)}</strong><small>{money(callWall)}</small></div>
-        <div><span>看跌墙相对现价</span><strong>{relative(putWall)}</strong><small>{money(putWall)}</small></div>
-        <div><span>最大痛点相对现价</span><strong>{relative(maxPain)}</strong><small>{money(maxPain)}</small></div>
-        <div><span>到期预期波动</span><strong>{expectedPct}</strong><small>{expectedMove === null ? "—" : `±${money(expectedMove)}`}</small></div>
+        <div><MetricLabel metric="callWall">看涨墙相对现价</MetricLabel><strong>{relative(callWall)}</strong><small>{money(callWall)}</small></div>
+        <div><MetricLabel metric="putWall">看跌墙相对现价</MetricLabel><strong>{relative(putWall)}</strong><small>{money(putWall)}</small></div>
+        <div><MetricLabel metric="maxPain">最大痛点相对现价</MetricLabel><strong>{relative(maxPain)}</strong><small>{money(maxPain)}</small></div>
+        <div><MetricLabel metric="expectedRange">到期预期波动</MetricLabel><strong>{expectedPct}</strong><small>{expectedMove === null ? "—" : `±${money(expectedMove)}`}</small></div>
       </div>
     </section>
   );

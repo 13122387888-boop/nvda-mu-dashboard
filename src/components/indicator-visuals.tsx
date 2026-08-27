@@ -1,5 +1,6 @@
 import type { CSSProperties } from "react";
 import { money, number, percent } from "@/lib/format";
+import { MetricHelp, MetricLabel } from "@/components/metric-help";
 
 type NullableNumber = number | null;
 type GammaRegime = "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
@@ -34,7 +35,7 @@ export function GammaExposureVisual({
   return (
     <div className={`visual-card gamma-visual ${state.className}`}>
       <div className="gamma-heading">
-        <div><span>GAMMA 结构代理</span><strong>{state.title}</strong></div>
+        <div><MetricLabel metric="gammaProxy">GAMMA 结构代理</MetricLabel><strong>{state.title}</strong></div>
         <div className="gamma-net"><span>净 Gamma / 标的变动 1%</span><b>{compactMoney(netGamma)}</b></div>
       </div>
       <div className="gamma-scale" role="img" aria-label={`Put Gamma 代理 ${compactMoney(putGamma)}，Call Gamma 代理 ${compactMoney(callGamma)}，当前${state.title}`}>
@@ -69,7 +70,7 @@ export function TrendDeviation({
   return (
     <div className="visual-card trend-visual">
       <div className="visual-card-heading">
-        <div><span>趋势位置</span><strong>收盘价相对均线</strong></div>
+        <div><span>趋势位置</span><div className="heading-with-help"><strong>收盘价相对均线</strong><MetricHelp metric="movingAverage" /></div></div>
         <small>中轴为均线 · 满刻度 ±10%</small>
       </div>
       <div className="deviation-list">
@@ -100,7 +101,7 @@ export function MomentumVisual({ rsi, realizedVolatility }: { rsi: NullableNumbe
   return (
     <div className="momentum-visual-grid">
       <div className="visual-card rsi-visual">
-        <div className="visual-card-heading"><div><span>动量强弱</span><strong>RSI 14</strong></div><b>{number(rsi)}</b></div>
+        <div className="visual-card-heading"><div><span>动量强弱</span><div className="heading-with-help"><strong>RSI 14</strong><MetricHelp metric="rsi14" /></div></div><b>{number(rsi)}</b></div>
         <div className="rsi-track" style={{ "--rsi-position": `${rsiPosition}%` } as CSSProperties} role="img" aria-label={`RSI14 ${number(rsi)}，${rsiLabel}`}><i /></div>
         <div className="rsi-labels"><span>超卖 30</span><b>{rsiLabel}</b><span>超买 70</span></div>
       </div>
@@ -108,7 +109,7 @@ export function MomentumVisual({ rsi, realizedVolatility }: { rsi: NullableNumbe
         <div className="volatility-ring" style={{ "--rv-progress": `${rvProgress}%` } as CSSProperties} role="img" aria-label={`20日年化历史波动率 ${percent(realizedVolatility)}`}>
           <div><strong>{percent(realizedVolatility)}</strong><span>RV20</span></div>
         </div>
-        <div className="volatility-copy"><span>已实现波动率</span><strong>过去20个交易日</strong><small>按日收益率年化计算</small></div>
+        <div className="volatility-copy"><MetricLabel metric="rv20">已实现波动率</MetricLabel><strong>过去20个交易日</strong><small>按日收益率年化计算</small></div>
       </div>
     </div>
   );
@@ -129,8 +130,8 @@ export function MomentumInformation({ rsi, realizedVolatility, atmIv }: { rsi: N
         <small>IV 与 RV 仅作定价比较</small>
       </div>
       <div className="volatility-bars" role="img" aria-label={`实现波动率 ${percent(realizedVolatility)}，平值隐含波动率 ${percent(atmIv)}`}>
-        <div><span>过去20日实际波动 RV20</span><b>{percent(realizedVolatility)}</b><i><em style={{ width: `${((realizedVolatility ?? 0) / maxVol) * 100}%` }} /></i></div>
-        <div><span>最近到期平值期权 ATM IV</span><b>{percent(atmIv)}</b><i><em className="implied" style={{ width: `${((atmIv ?? 0) / maxVol) * 100}%` }} /></i></div>
+        <div><MetricLabel metric="rv20">过去20日实际波动 RV20</MetricLabel><b>{percent(realizedVolatility)}</b><i><em style={{ width: `${((realizedVolatility ?? 0) / maxVol) * 100}%` }} /></i></div>
+        <div><MetricLabel metric="atmIv">最近到期平值期权 ATM IV</MetricLabel><b>{percent(atmIv)}</b><i><em className="implied" style={{ width: `${((atmIv ?? 0) / maxVol) * 100}%` }} /></i></div>
       </div>
       <div className="momentum-info-grid">
         <article><span>走势是否过热</span><strong>{rsiState}</strong><p>RSI14 为 {number(rsi)}；70以上偏热，30以下偏冷，中间区域用于观察强弱变化。</p></article>
@@ -177,7 +178,7 @@ export function ExpectedRangeVisual({
   return (
     <div className="visual-card range-visual">
       <div className="visual-card-heading">
-        <div><span>到期预期区间</span><strong>{expectedMove === null ? "暂无数据" : `± ${money(expectedMove)}`}</strong></div>
+        <div><MetricLabel metric="expectedRange">到期预期区间</MetricLabel><strong>{expectedMove === null ? "暂无数据" : `± ${money(expectedMove)}`}</strong></div>
         <b>{expectedMovePct === null ? "—" : `± ${percent(expectedMovePct)}`}</b>
       </div>
       {lower === null || upper === null ? <div className="mini-empty">暂无可用期权区间</div> : <>
@@ -206,7 +207,7 @@ export function PutCallVisual({ ratio, atmIv }: { ratio: NullableNumber; atmIv: 
         <div><strong>{number(ratio)}</strong><span>Put / Call</span></div>
       </div>
       <div className="donut-copy">
-        <span>持仓结构</span>
+        <MetricLabel metric="putCallOi">持仓结构</MetricLabel>
         <div><i className="call" /><b>Call {Math.round(callShare * 100)}%</b></div>
         <div><i className="put" /><b>Put {Math.round(putShare * 100)}%</b></div>
         <small>平值隐含波动率 {percent(atmIv)}</small>

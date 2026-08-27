@@ -8,11 +8,13 @@ export function DataScope({
   stockDate,
   optionsDate,
   expiration,
+  optionWindow,
   strikeCount,
 }: {
   stockDate: string;
   optionsDate: string | null;
   expiration: string | null;
+  optionWindow: string;
   strikeCount: number;
 }) {
   return (
@@ -20,16 +22,17 @@ export function DataScope({
       <div className="scope-tags">
         <span><b>股票</b>EOD · {stockDate}</span>
         <span><b>期权</b>EOD · {optionsDate ?? "暂无"}</span>
-        <span><b>到期日</b>{expiration ?? "暂无"}</span>
+        <span><b>期限</b>{optionWindow}</span>
+        <span><b>定价到期</b>{expiration ?? "暂无"}</span>
         <span><b>覆盖</b>{strikeCount ? `${strikeCount} 个近价行权价` : "暂无期权链"}</span>
       </div>
       <details>
         <summary>查看数据口径与限制</summary>
         <div className="scope-grid">
           <div><b>股票行情</b><p>采用调整后日线数据计算涨跌、MA20/50/200、RSI14 与 RV20。页面不是盘中实时行情，周末、休市日及数据源发布前会停留在最近交易日。</p></div>
-          <div><b>期权范围</b><p>使用最新可取得的日终期权链，并选择最近的未来到期日。当前公开数据以最接近平值的有限行权价为主，因此看涨墙、看跌墙和最大痛点均是覆盖范围内的估算。</p></div>
-          <div><b>模型指标</b><p>预期区间采用最近到期 ATM Call 与 Put 权利金之和；Gamma 按 Call 为正、Put 为负的统一符号计算结构代理，不能识别真实做市商持仓。</p></div>
-          <div><b>使用边界</b><p>规则观察未纳入盘中变化、财报新闻、交易成本、个人持仓及风险承受能力，仅用于研究展示，不构成买入、卖出、持有或仓位建议。</p></div>
+          <div><b>期权范围</b><p>使用最新可取得的日终期权链。看涨墙、看跌墙、Put/Call、未平仓量与 Gamma 在“{optionWindow}”内汇总；公开数据以有限近价行权价为主。</p></div>
+          <div><b>模型指标</b><p>预期区间、ATM IV 与最大痛点采用所选范围内最近到期日，避免混合不同期限的价格；Gamma 统一按 Call 为正、Put 为负计算结构代理。</p></div>
+          <div><b>使用边界</b><p>规则观察未纳入盘中变化、财报新闻、交易成本、个人持仓及风险承受能力，仅用于研究展示。</p></div>
         </div>
       </details>
     </section>
@@ -41,7 +44,7 @@ export function ResearchBrief({ input }: { input: DecisionSupportInput }) {
   const targets: Record<string, string> = {
     "趋势": "price-trend",
     "动量": "momentum-overview",
-    "波动定价": "momentum-pricing",
+    "波动定价": "momentum-overview",
     "期权结构": "options-gamma",
   };
   return (
@@ -58,7 +61,7 @@ export function ResearchBrief({ input }: { input: DecisionSupportInput }) {
           </BriefLink>
         ))}
       </div>
-      <small>只描述当前公开日终数据 · 不构成投资建议 · 数据变化后结论会重新计算</small>
+      <small>只描述当前公开日终数据 · 数据变化后结论会重新计算</small>
     </section>
   );
 }
@@ -147,7 +150,7 @@ export function ScenarioObservation({ input }: { input: ScenarioInput }) {
           </article>
         ))}
       </div>
-      <small>这是基于日终数据的条件观察，不是交易指令；未纳入财报、新闻、盘中流动性和个人风险承受能力。</small>
+      <small>基于日终数据的条件观察，未纳入财报、新闻、盘中流动性和个人风险承受能力。</small>
     </section>
   );
 }

@@ -1,4 +1,7 @@
-import type { ReactNode } from "react";
+"use client";
+
+import { type ReactNode, useCallback, useEffect, useId, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 export const METRIC_GLOSSARY = {
   movingAverage: {
@@ -32,7 +35,7 @@ export const METRIC_GLOSSARY = {
   expectedRange: {
     title: "到期预期区间",
     what: "最近到期期权价格隐含的波动范围，用来观察市场定价了多大幅度的移动。",
-    formula: "预期波动 = 最近平值 Call 与 Put 的价格之和；上下沿 = 当前收盘价 ± 预期波动。",
+    formula: "在所选期限范围内采用最近到期日：预期波动 = 平值 Call 与 Put 的价格之和；上下沿 = 当前收盘价 ± 预期波动。",
     read: "比较现价、上下沿和关键持仓价位，可以判断某个价位是否超出当前期权定价范围。",
     caveat: "这不是统计置信区间或目标价，价格完全可能落在区间之外。",
   },
@@ -46,14 +49,14 @@ export const METRIC_GLOSSARY = {
   callWall: {
     title: "看涨墙",
     what: "当前期权样本中 Call 未平仓量最大的行权价。",
-    formula: "在最近到期 Call 合约中按未平仓量排序，取未平仓量最高的行权价。",
+    formula: "在所选期限范围内，先按行权价汇总全部 Call 未平仓量，再取合计最高的行权价。",
     read: "可观察上方持仓最集中的价位，以及现价距离该位置还有多远。",
     caveat: "它不等于确定阻力位，也无法从公开未平仓量判断持仓者实际多空方向。",
   },
   putWall: {
     title: "看跌墙",
     what: "当前期权样本中 Put 未平仓量最大的行权价。",
-    formula: "在最近到期 Put 合约中按未平仓量排序，取未平仓量最高的行权价。",
+    formula: "在所选期限范围内，先按行权价汇总全部 Put 未平仓量，再取合计最高的行权价。",
     read: "可观察下方持仓最集中的价位，以及现价距离该位置还有多远。",
     caveat: "它不等于确定支撑位，也无法从公开未平仓量判断持仓者实际多空方向。",
   },
@@ -74,7 +77,7 @@ export const METRIC_GLOSSARY = {
   openInterest: {
     title: "未平仓量（OI）",
     what: "尚未通过平仓、行权或到期结束的期权合约数量。",
-    formula: "由数据源按每个到期日、行权价和 Call/Put 类型提供，页面按行权价直接展示。",
+    formula: "由数据源按到期日、行权价和 Call/Put 类型提供；页面把所选期限内相同行权价的数据相加后展示。",
     read: "柱越长表示该行权价现有合约越集中，可用于定位持仓密集区域。",
     caveat: "OI 不是当日成交量，也不表示这些合约是净买入、净卖出或新增方向。",
   },
@@ -82,24 +85,65 @@ export const METRIC_GLOSSARY = {
 
 export type MetricHelpKey = keyof typeof METRIC_GLOSSARY;
 
-export function MetricHelp({ metric, align = "start" }: { metric: MetricHelpKey; align?: "start" | "end" }) {
+export function MetricLabel({ children, metric }: { children: ReactNode; metric: MetricHelpKey }) {
   const item = METRIC_GLOSSARY[metric];
-  return (
-    <details className={`metric-help ${align === "end" ? "align-end" : ""}`}>
-      <summary aria-label={`解释：${item.title}`} title={`解释：${item.title}`}>?</summary>
-      <div className="metric-help-card">
-        <div className="metric-help-title"><span>指标说明</span><strong>{item.title}</strong></div>
-        <dl>
-          <div><dt>是什么</dt><dd>{item.what}</dd></div>
-          <div><dt>怎么算</dt><dd>{item.formula}</dd></div>
-          <div><dt>怎么看</dt><dd>{item.read}</dd></div>
-          <div><dt>别误解</dt><dd>{item.caveat}</dd></div>
-        </dl>
-      </div>
-    </details>
-  );
-}
+  const titleId = useId();
+  const [rendered, setRendered] = useState(false);
+  const [active, setActive] = useState(false);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-export function MetricLabel({ children, metric, align }: { children: ReactNode; metric: MetricHelpKey; align?: "start" | "end" }) {
-  return <div className="metric-label-with-help"><span>{children}</span><MetricHelp metric={metric} align={align} /></div>;
+  const close = useCallback(() => {
+    setActive(false);
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(() => setRendered(false), 240);
+  }, []);
+
+  const open = () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    setRendered(true);
+  };
+
+  useEffect(() => {
+    if (!rendered) return;
+    const previousOverflow = document.body.style.overflow;
+    const frame = requestAnimationFrame(() => setActive(true));
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") close();
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [close, rendered]);
+
+  useEffect(() => () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+  }, []);
+
+  return (
+    <>
+      <button type="button" className="metric-note-trigger" onClick={open} aria-haspopup="dialog" aria-expanded={rendered}>
+        {children}
+      </button>
+      {rendered && createPortal(
+        <div className={`metric-note-overlay ${active ? "active" : ""}`} onClick={(event) => { if (event.target === event.currentTarget) close(); }}>
+          <section className="metric-note-sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+            <div className="metric-note-handle" aria-hidden="true" />
+            <div className="metric-note-heading"><span>指标说明</span><button type="button" onClick={close}>关闭</button></div>
+            <h2 id={titleId}>{item.title}</h2>
+            <dl>
+              <div><dt>是什么</dt><dd>{item.what}</dd></div>
+              <div><dt>怎么算</dt><dd>{item.formula}</dd></div>
+              <div><dt>怎么看</dt><dd>{item.read}</dd></div>
+              <div><dt>别误解</dt><dd>{item.caveat}</dd></div>
+            </dl>
+          </section>
+        </div>,
+        document.body,
+      )}
+    </>
+  );
 }

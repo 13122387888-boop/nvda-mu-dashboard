@@ -1,80 +1,5 @@
 import Link from "next/link";
-import { buildObservationChecklist, type ObservationChecklistInput } from "@/lib/indicators/decision-support";
-import { money, number, percent } from "@/lib/format";
-
-type GammaRegime = "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
-
-const gammaLabel: Record<GammaRegime, string> = {
-  POSITIVE: "正 Gamma",
-  NEGATIVE: "负 Gamma",
-  NEUTRAL: "中性",
-  UNAVAILABLE: "数据不足",
-};
-
-function signed(value: number | null, suffix = "") {
-  if (value === null || !Number.isFinite(value)) return "暂无对比";
-  if (Math.abs(value) < 0.00001) return `持平${suffix}`;
-  return `${value > 0 ? "+" : ""}${value.toFixed(2)}${suffix}`;
-}
-
-function wallMove(value: number | null) {
-  if (value === null || !Number.isFinite(value)) return "暂无对比";
-  if (Math.abs(value) < 0.005) return "持平";
-  return `${value > 0 ? "上移" : "下移"} ${money(Math.abs(value))}`;
-}
-
-export function DailyChangeSummary({ changes }: {
-  changes: {
-    previousStockDate: string | null;
-    previousOptionDate: string | null;
-    closePct: number | null;
-    rsiDelta: number | null;
-    rv20Delta: number | null;
-    callWallMove: number | null;
-    putWallMove: number | null;
-    expectedMovePctDelta: number | null;
-    gammaFrom: GammaRegime | null;
-    gammaTo: GammaRegime;
-  };
-}) {
-  const gammaChanged = changes.gammaFrom !== null && changes.gammaFrom !== changes.gammaTo;
-  return (
-    <section className="daily-change" aria-labelledby="daily-change-title">
-      <div className="daily-change-heading">
-        <div><span>WHAT CHANGED</span><h2 id="daily-change-title">今天发生了什么</h2></div>
-        <small>股票对比 {changes.previousStockDate ?? "暂无"} · 期权对比 {changes.previousOptionDate ?? "暂无"}</small>
-      </div>
-      <div className="daily-change-grid">
-        <article><span>收盘变化</span><strong className={changes.closePct !== null && changes.closePct >= 0 ? "positive" : "negative"}>{changes.closePct === null ? "暂无对比" : percent(changes.closePct, true)}</strong><p>相对前一交易日收盘价</p></article>
-        <article><span>动量与实际波动</span><strong>RSI {signed(changes.rsiDelta)}</strong><p>RV20 {changes.rv20Delta === null ? "暂无对比" : signed(changes.rv20Delta * 100, " 个百分点")}</p></article>
-        <article><span>关键墙位移动</span><strong>看涨墙 {wallMove(changes.callWallMove)}</strong><p>看跌墙 {wallMove(changes.putWallMove)}</p></article>
-        <article className={gammaChanged ? "changed" : ""}><span>期权波动结构</span><strong>{changes.gammaFrom === null ? gammaLabel[changes.gammaTo] : gammaChanged ? `${gammaLabel[changes.gammaFrom]} → ${gammaLabel[changes.gammaTo]}` : `维持${gammaLabel[changes.gammaTo]}`}</strong><p>预期波动 {changes.expectedMovePctDelta === null ? "暂无对比" : signed(changes.expectedMovePctDelta * 100, " 个百分点")}</p></article>
-      </div>
-      <small>仅比较相邻可用日终记录；“暂无对比”表示该到期日尚未积累足够历史。</small>
-    </section>
-  );
-}
-
-export function ObservationChecklist({ input }: { input: ObservationChecklistInput }) {
-  const items = buildObservationChecklist(input);
-  return (
-    <section className="observation-checklist" aria-labelledby="observation-checklist-title">
-      <div className="checklist-heading">
-        <div><span>TODAY&apos;S WATCHLIST</span><h2 id="observation-checklist-title">今日观察清单</h2></div>
-        <p>条件满足后仍需结合趋势与数据日期复核。</p>
-      </div>
-      <div className="checklist-grid">
-        {items.map((item) => (
-          <article className={item.tone} key={item.label}>
-            <div><span>{item.label}</span><b>{item.status}</b></div>
-            <strong>{item.condition}</strong><p>{item.detail}</p>
-          </article>
-        ))}
-      </div>
-      <small>清单只说明观察条件是否接近或满足，不代表应当买入、卖出或调整仓位。</small>
-    </section>
-  );
-}
+import { number, percent } from "@/lib/format";
 
 type Position = { value: number | null; percentile: number | null; sampleSize: number };
 
@@ -108,28 +33,32 @@ export function HistoricalPosition({ positions }: { positions: { rsi14: Position
   );
 }
 
-function expirationLabel(value: string) {
-  const [, month, day] = value.split("-");
-  return `${Number(month)}月${Number(day)}日`;
-}
+export type OptionWindowValue = "ALL" | "7" | "30" | "50";
 
-export function ExpirationSelector({ symbol, expirations, selected }: { symbol: string; expirations: string[]; selected: string | null }) {
+const optionWindows: Array<{ value: OptionWindowValue; label: string }> = [
+  { value: "ALL", label: "全部" },
+  { value: "7", label: "7天" },
+  { value: "30", label: "30天" },
+  { value: "50", label: "50天" },
+];
+
+export function OptionWindowSelector({ symbol, selected }: { symbol: string; selected: OptionWindowValue }) {
   return (
-    <div className="expiration-selector" aria-label="选择期权到期日">
-      <div><span>到期日</span><small>切换后全部期权指标同步重算</small></div>
+    <div className="expiration-selector" aria-label="选择期权剩余到期天数">
+      <div><span>期权到期日</span><small>墙位、未平仓量与 Gamma 按所选范围汇总</small></div>
       <nav>
-        {expirations.map((expiration, index) => (
-          <Link href={`/stocks/${symbol}?expiration=${expiration}`} className={expiration === selected ? "active" : ""} aria-current={expiration === selected ? "page" : undefined} key={expiration}>
-            <span>{index === 0 ? "最近" : index === 1 ? "下一个" : "后续"}</span>{expirationLabel(expiration)}
+        {optionWindows.map((item) => (
+          <Link href={item.value === "ALL" ? `/stocks/${symbol}` : `/stocks/${symbol}?window=${item.value}`} className={item.value === selected ? "active" : ""} aria-current={item.value === selected ? "page" : undefined} key={item.value}>
+            {item.label}
           </Link>
         ))}
       </nav>
-      {!expirations.length && <b>暂无可用到期日</b>}
+      <small>7 / 30 / 50 天均指“剩余到期天数以内”；预期区间、ATM IV 与最大痛点采用范围内最近到期日。</small>
     </div>
   );
 }
 
-export function SnapshotLink({ symbol, expiration }: { symbol: string; expiration: string | null }) {
-  const query = expiration ? `?expiration=${expiration}` : "";
-  return <Link className="snapshot-link" href={`/stocks/${symbol}/snapshot${query}`}>分享研究快照 ↗</Link>;
+export function SnapshotLink({ symbol, window }: { symbol: string; window: OptionWindowValue }) {
+  const query = window === "ALL" ? "" : `?window=${window}`;
+  return <Link className="snapshot-link" href={`/stocks/${symbol}/snapshot${query}`}>微信 / 图片分享 ↗</Link>;
 }

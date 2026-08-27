@@ -3,8 +3,8 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { SnapshotActions, type SnapshotExportData } from "@/components/snapshot-actions";
-import { Footer, Header } from "@/components/site-chrome";
-import { buildObservationChecklist, buildResearchBrief } from "@/lib/indicators/decision-support";
+import { Header } from "@/components/site-chrome";
+import { buildResearchBrief } from "@/lib/indicators/decision-support";
 import { money, number, percent, STATUS_LABELS } from "@/lib/format";
 import { getStockDashboard, isSupportedSymbol, STOCKS } from "@/lib/services/stock-dashboard-service";
 
@@ -21,16 +21,15 @@ export async function generateMetadata({ params }: { params: Promise<{ symbol: s
 
 const gammaLabels = { POSITIVE: "正 Gamma 代理", NEGATIVE: "负 Gamma 代理", NEUTRAL: "Gamma 中性", UNAVAILABLE: "数据不足" } as const;
 
-export default async function SnapshotPage({ params, searchParams }: { params: Promise<{ symbol: string }>; searchParams: Promise<{ expiration?: string | string[] }> }) {
+export default async function SnapshotPage({ params, searchParams }: { params: Promise<{ symbol: string }>; searchParams: Promise<{ window?: string | string[] }> }) {
   const symbol = (await params).symbol.toUpperCase();
   if (!isSupportedSymbol(symbol)) notFound();
-  const rawExpiration = (await searchParams).expiration;
-  const requestedExpiration = typeof rawExpiration === "string" ? rawExpiration : null;
+  const rawWindow = (await searchParams).window;
+  const requestedWindow = typeof rawWindow === "string" ? rawWindow : null;
   await connection();
-  const dashboard = await getStockDashboard(symbol, requestedExpiration);
+  const dashboard = await getStockDashboard(symbol, requestedWindow);
   if (!dashboard) notFound();
   const brief = buildResearchBrief({ marketStatus: dashboard.quote.marketStatus, rsi14: dashboard.trend.rsi14, rv20: dashboard.trend.rv20, atmIv: dashboard.options.atmIv, gammaRegime: dashboard.options.gammaExposure.regime });
-  const checklist = buildObservationChecklist({ close: dashboard.quote.close, callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, expectedUpper: dashboard.options.expectedUpper, expectedLower: dashboard.options.expectedLower, gammaRegime: dashboard.options.gammaExposure.regime });
   const change = dashboard.quote.dailyChangePct;
   const exportData: SnapshotExportData = {
     symbol,
@@ -38,6 +37,7 @@ export default async function SnapshotPage({ params, searchParams }: { params: P
     stockDate: dashboard.stockDate,
     optionsDate: dashboard.optionsDate,
     expiration: dashboard.optionsExpiration,
+    optionWindow: dashboard.optionWindowLabel,
     close: money(dashboard.quote.close),
     change: change === null ? "—" : `${change >= 0 ? "+" : ""}${percent(change, true)}`,
     summary: brief.summary,
@@ -49,13 +49,13 @@ export default async function SnapshotPage({ params, searchParams }: { params: P
     putWall: money(dashboard.options.putWall),
     gamma: gammaLabels[dashboard.options.gammaExposure.regime],
   };
-  const backQuery = dashboard.optionsExpiration ? `?expiration=${dashboard.optionsExpiration}` : "";
+  const backQuery = dashboard.optionWindow === "ALL" ? "" : `?window=${dashboard.optionWindow}`;
   return (
     <main className="shell snapshot-page">
       <Header />
       <div className="snapshot-toolbar"><Link href={`/stocks/${symbol}${backQuery}`}>← 返回完整研究页</Link><SnapshotActions data={exportData} /></div>
       <section className="snapshot-card" aria-label={`${symbol} 研究快照`}>
-        <header><div><span>RESEARCH SNAPSHOT</span><b>{symbol}</b><h1>{dashboard.name}</h1></div><div><small>股票数据 {dashboard.stockDate}</small><small>期权数据 {dashboard.optionsDate ?? "暂无"}</small><small>到期日 {dashboard.optionsExpiration ?? "暂无"}</small></div></header>
+        <header><div><span>RESEARCH SNAPSHOT</span><b>{symbol}</b><h1>{dashboard.name}</h1></div><div><small>股票数据 {dashboard.stockDate}</small><small>期权数据 {dashboard.optionsDate ?? "暂无"}</small><small>期限 {dashboard.optionWindowLabel}</small><small>定价到期 {dashboard.optionsExpiration ?? "暂无"}</small></div></header>
         <div className="snapshot-quote"><strong>{money(dashboard.quote.close)}</strong><span className={change !== null && change >= 0 ? "positive" : "negative"}>{exportData.change}</span></div>
         <p className="snapshot-summary">{brief.summary}</p>
         <div className="snapshot-metrics">
@@ -64,12 +64,8 @@ export default async function SnapshotPage({ params, searchParams }: { params: P
           <article><span>关键价位</span><strong>{money(dashboard.options.putWall)} – {money(dashboard.options.callWall)}</strong><p>看跌墙 – 看涨墙</p></article>
           <article><span>期权结构</span><strong>{gammaLabels[dashboard.options.gammaExposure.regime]}</strong><p>最大痛点 {money(dashboard.options.maxPain)}</p></article>
         </div>
-        <div className="snapshot-watchlist">
-          {checklist.map((item) => <div className={item.tone} key={item.label}><span>{item.label}</span><b>{item.status}</b><p>{item.condition}</p></div>)}
-        </div>
         <footer><span>基于公开日终数据的规则观察，数据变化后重新计算。</span><b>不构成投资建议</b></footer>
       </section>
-      <Footer />
     </main>
   );
 }

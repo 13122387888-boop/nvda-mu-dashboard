@@ -1,7 +1,8 @@
-import { addDays, dateToYmd, parseYmd } from "@/lib/dates";
+import { addDays, dateToYmd } from "@/lib/dates";
 import { getPrisma } from "@/lib/db/prisma";
 import { calculateGammaExposureProxy } from "@/lib/indicators/options/gamma-exposure";
 import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics";
+import { putCallOpenInterest } from "@/lib/indicators/options/put-call-ratio";
 import { movingAverageSeries } from "@/lib/indicators/moving-average";
 import { realizedVolatility } from "@/lib/indicators/realized-volatility";
 import { wilderRsi } from "@/lib/indicators/rsi";
@@ -13,6 +14,22 @@ export const STOCKS: Record<SupportedSymbol, { name: string; accent: string }> =
 };
 
 export const SUPPORTED_SYMBOLS = Object.keys(STOCKS) as SupportedSymbol[];
+
+export type OptionWindow = "ALL" | "7" | "30" | "50";
+
+const OPTION_WINDOW_LIMITS: Record<OptionWindow, number | null> = {
+  ALL: null,
+  "7": 7,
+  "30": 30,
+  "50": 50,
+};
+
+const OPTION_WINDOW_LABELS: Record<OptionWindow, string> = {
+  ALL: "全部到期日",
+  "7": "7天内",
+  "30": "30天内",
+  "50": "50天内",
+};
 
 export function isSupportedSymbol(value: string): value is SupportedSymbol {
   return value === "NVDA" || value === "MU";
@@ -63,6 +80,24 @@ function toOptionRecord(row: OptionDatabaseRow): OptionContractRecord {
   };
 }
 
+function normalizeOptionWindow(value?: string | null): OptionWindow {
+  return value === "7" || value === "30" || value === "50" ? value : "ALL";
+}
+
+function remainingDays(tradeDate: Date, expiration: Date) {
+  return Math.ceil((expiration.getTime() - tradeDate.getTime()) / 86_400_000);
+}
+
+function aggregateOptionWall(chain: OptionContractRecord[], side: "CALL" | "PUT", close: number) {
+  const byStrike = new Map<number, number>();
+  for (const contract of chain) {
+    if (contract.optionType !== side || contract.openInterest === null || contract.openInterest <= 0) continue;
+    byStrike.set(contract.strike, (byStrike.get(contract.strike) ?? 0) + contract.openInterest);
+  }
+  return [...byStrike.entries()]
+    .sort((a, b) => b[1] - a[1] || Math.abs(a[0] - close) - Math.abs(b[0] - close))[0]?.[0] ?? null;
+}
+
 function percentileRank(values: Array<number | null>, current: number | null, minimumSamples = 60) {
   const valid = values.filter((value): value is number => value !== null && Number.isFinite(value)).slice(-252);
   if (current === null || !Number.isFinite(current) || valid.length < minimumSamples) {
@@ -101,45 +136,37 @@ export async function getStockCards() {
   }));
 }
 
-export async function getStockDashboard(symbol: SupportedSymbol, requestedExpiration?: string | null) {
+export async function getStockDashboard(symbol: SupportedSymbol, requestedWindow?: string | null) {
   const prisma = getPrisma();
   const metrics = await prisma.stockMetrics.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" } });
   if (!metrics) return null;
 
   const chartStartDate = addDays(dateToYmd(metrics.tradeDate), -190);
   const calculationStartDate = addDays(dateToYmd(metrics.tradeDate), -450);
-  const calculationHistory = await prisma.stockDaily.findMany({
-    where: { symbol, tradeDate: { gte: new Date(`${calculationStartDate}T00:00:00.000Z`) } },
-    orderBy: { tradeDate: "asc" },
-  });
+  const [calculationHistory, allOptionRows] = await Promise.all([
+    prisma.stockDaily.findMany({
+      where: { symbol, tradeDate: { gte: new Date(`${calculationStartDate}T00:00:00.000Z`) } },
+      orderBy: { tradeDate: "asc" },
+    }),
+    metrics.optionsTradeDate
+      ? prisma.optionEod.findMany({
+          where: { symbol, tradeDate: metrics.optionsTradeDate, expiration: { gt: metrics.optionsTradeDate } },
+          orderBy: [{ expiration: "asc" }, { strike: "asc" }],
+        })
+      : Promise.resolve([]),
+  ]);
   const closes = calculationHistory.map((row) => Number(row.adjustedClose ?? row.close));
   const ma20 = movingAverageSeries(closes, 20);
   const ma50 = movingAverageSeries(closes, 50);
   const ma200 = movingAverageSeries(closes, 200);
   const close = Number(metrics.close);
-  const expirationRows = metrics.optionsTradeDate
-    ? await prisma.optionEod.findMany({
-        where: { symbol, tradeDate: metrics.optionsTradeDate, expiration: { gt: metrics.optionsTradeDate } },
-        select: { expiration: true },
-        distinct: ["expiration"],
-        orderBy: { expiration: "asc" },
-      })
-    : [];
-  const availableExpirations = expirationRows.map((row) => dateToYmd(row.expiration));
-  const savedExpiration = metrics.optionsExpiration ? dateToYmd(metrics.optionsExpiration) : null;
-  const selectedExpiration = requestedExpiration && availableExpirations.includes(requestedExpiration)
-    ? requestedExpiration
-    : savedExpiration && availableExpirations.includes(savedExpiration)
-      ? savedExpiration
-      : availableExpirations[0] ?? null;
-  const optionRows = metrics.optionsTradeDate && selectedExpiration
-    ? await prisma.optionEod.findMany({
-        where: { symbol, tradeDate: metrics.optionsTradeDate, expiration: parseYmd(selectedExpiration) },
-        orderBy: { strike: "asc" },
-      })
-    : [];
+  const optionWindow = normalizeOptionWindow(requestedWindow);
+  const optionWindowLimit = OPTION_WINDOW_LIMITS[optionWindow];
+  const optionRows = optionWindowLimit === null || !metrics.optionsTradeDate
+    ? allOptionRows
+    : allOptionRows.filter((row) => remainingDays(metrics.optionsTradeDate!, row.expiration) <= optionWindowLimit);
   const optionRecords = optionRows.map(toOptionRecord);
-  const selectedOptionMetrics = calculateOptionMetrics(optionRecords, close);
+  const pricingMetrics = calculateOptionMetrics(optionRecords, close);
   const gammaExposure = calculateGammaExposureProxy(optionRows.map((row) => ({
     optionType: row.optionType,
     gamma: numberOrNull(row.gamma),
@@ -157,40 +184,6 @@ export async function getStockDashboard(symbol: SupportedSymbol, requestedExpira
     oi.set(strike, point);
   }
 
-  const previousCloses = closes.slice(0, -1);
-  const previousStockDate = calculationHistory.at(-2)?.tradeDate ?? null;
-  const previousRsi14 = wilderRsi(previousCloses, 14);
-  const previousRv20 = realizedVolatility(previousCloses, 20);
-  const previousOptionDateRow = metrics.optionsTradeDate && selectedExpiration
-    ? await prisma.optionEod.findFirst({
-        where: { symbol, expiration: parseYmd(selectedExpiration), tradeDate: { lt: metrics.optionsTradeDate } },
-        orderBy: { tradeDate: "desc" },
-        select: { tradeDate: true },
-      })
-    : null;
-  const previousOptionRows = previousOptionDateRow && selectedExpiration
-    ? await prisma.optionEod.findMany({
-        where: { symbol, tradeDate: previousOptionDateRow.tradeDate, expiration: parseYmd(selectedExpiration) },
-        orderBy: { strike: "asc" },
-      })
-    : [];
-  const previousOptionCloseRow = previousOptionDateRow
-    ? await prisma.stockDaily.findFirst({
-        where: { symbol, tradeDate: { lte: previousOptionDateRow.tradeDate } },
-        orderBy: { tradeDate: "desc" },
-        select: { close: true, adjustedClose: true },
-      })
-    : null;
-  const previousOptionClose = previousOptionCloseRow ? Number(previousOptionCloseRow.adjustedClose ?? previousOptionCloseRow.close) : null;
-  const previousOptionMetrics = previousOptionClose === null ? null : calculateOptionMetrics(previousOptionRows.map(toOptionRecord), previousOptionClose);
-  const previousGamma = previousOptionClose === null
-    ? null
-    : calculateGammaExposureProxy(previousOptionRows.map((row) => ({
-        optionType: row.optionType,
-        gamma: numberOrNull(row.gamma),
-        openInterest: row.openInterest === null ? null : Number(row.openInterest),
-        contractMultiplier: row.contractMultiplier,
-      })), previousOptionClose);
   const currentRsi14 = numberOrNull(metrics.rsi14);
   const currentRv20 = numberOrNull(metrics.rv20);
   const currentMa20 = numberOrNull(metrics.ma20);
@@ -202,8 +195,9 @@ export async function getStockDashboard(symbol: SupportedSymbol, requestedExpira
     accent: STOCKS[symbol].accent,
     stockDate: dateToYmd(metrics.tradeDate),
     optionsDate: optionRows.length && metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null,
-    optionsExpiration: selectedExpiration,
-    availableExpirations,
+    optionsExpiration: pricingMetrics.optionsExpiration,
+    optionWindow,
+    optionWindowLabel: OPTION_WINDOW_LABELS[optionWindow],
     quote: {
       close,
       dailyChange: numberOrNull(metrics.dailyChange),
@@ -218,28 +212,16 @@ export async function getStockDashboard(symbol: SupportedSymbol, requestedExpira
       rv20: currentRv20,
     },
     options: {
-      expectedMove: selectedOptionMetrics.expectedMove,
-      expectedMovePct: selectedOptionMetrics.expectedMovePct,
-      expectedUpper: selectedOptionMetrics.expectedUpper,
-      expectedLower: selectedOptionMetrics.expectedLower,
-      putCallOi: selectedOptionMetrics.putCallOi,
-      maxPain: selectedOptionMetrics.maxPain,
-      callWall: selectedOptionMetrics.callWall,
-      putWall: selectedOptionMetrics.putWall,
-      atmIv: selectedOptionMetrics.atmIv,
+      expectedMove: pricingMetrics.expectedMove,
+      expectedMovePct: pricingMetrics.expectedMovePct,
+      expectedUpper: pricingMetrics.expectedUpper,
+      expectedLower: pricingMetrics.expectedLower,
+      putCallOi: putCallOpenInterest(optionRecords),
+      maxPain: pricingMetrics.maxPain,
+      callWall: aggregateOptionWall(optionRecords, "CALL", close),
+      putWall: aggregateOptionWall(optionRecords, "PUT", close),
+      atmIv: pricingMetrics.atmIv,
       gammaExposure,
-    },
-    dailyChanges: {
-      previousStockDate: previousStockDate ? dateToYmd(previousStockDate) : null,
-      previousOptionDate: previousOptionDateRow ? dateToYmd(previousOptionDateRow.tradeDate) : null,
-      closePct: numberOrNull(metrics.dailyChangePct),
-      rsiDelta: currentRsi14 === null || previousRsi14 === null ? null : currentRsi14 - previousRsi14,
-      rv20Delta: currentRv20 === null || previousRv20 === null ? null : currentRv20 - previousRv20,
-      callWallMove: selectedOptionMetrics.callWall === null || previousOptionMetrics?.callWall == null ? null : selectedOptionMetrics.callWall - previousOptionMetrics.callWall,
-      putWallMove: selectedOptionMetrics.putWall === null || previousOptionMetrics?.putWall == null ? null : selectedOptionMetrics.putWall - previousOptionMetrics.putWall,
-      expectedMovePctDelta: selectedOptionMetrics.expectedMovePct === null || previousOptionMetrics?.expectedMovePct == null ? null : selectedOptionMetrics.expectedMovePct - previousOptionMetrics.expectedMovePct,
-      gammaFrom: previousGamma?.regime ?? null,
-      gammaTo: gammaExposure.regime,
     },
     historicalPositions,
     priceHistory: calculationHistory.map((row, index) => ({

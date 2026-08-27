@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 import { money, number, percent } from "@/lib/format";
-import { MetricHelp, MetricLabel } from "@/components/metric-help";
+import { MetricLabel } from "@/components/metric-help";
 
 type NullableNumber = number | null;
 type GammaRegime = "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
@@ -70,7 +70,7 @@ export function TrendDeviation({
   return (
     <div className="visual-card trend-visual">
       <div className="visual-card-heading">
-        <div><span>趋势位置</span><div className="heading-with-help"><strong>收盘价相对均线</strong><MetricHelp metric="movingAverage" /></div></div>
+        <div><span>趋势位置</span><div className="heading-with-help"><strong><MetricLabel metric="movingAverage">收盘价相对均线</MetricLabel></strong></div></div>
         <small>中轴为均线 · 满刻度 ±10%</small>
       </div>
       <div className="deviation-list">
@@ -101,7 +101,7 @@ export function MomentumVisual({ rsi, realizedVolatility }: { rsi: NullableNumbe
   return (
     <div className="momentum-visual-grid">
       <div className="visual-card rsi-visual">
-        <div className="visual-card-heading"><div><span>动量强弱</span><div className="heading-with-help"><strong>RSI 14</strong><MetricHelp metric="rsi14" /></div></div><b>{number(rsi)}</b></div>
+        <div className="visual-card-heading"><div><span>动量强弱</span><div className="heading-with-help"><strong><MetricLabel metric="rsi14">RSI 14</MetricLabel></strong></div></div><b>{number(rsi)}</b></div>
         <div className="rsi-track" style={{ "--rsi-position": `${rsiPosition}%` } as CSSProperties} role="img" aria-label={`RSI14 ${number(rsi)}，${rsiLabel}`}><i /></div>
         <div className="rsi-labels"><span>超卖 30</span><b>{rsiLabel}</b><span>超买 70</span></div>
       </div>

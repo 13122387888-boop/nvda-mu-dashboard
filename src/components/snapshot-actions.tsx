@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export type SnapshotExportData = {
   symbol: string;
@@ -8,6 +8,7 @@ export type SnapshotExportData = {
   stockDate: string;
   optionsDate: string | null;
   expiration: string | null;
+  optionWindow: string;
   close: string;
   change: string;
   summary: string;
@@ -84,7 +85,7 @@ async function createSnapshot(data: SnapshotExportData) {
     ["趋势", data.trend, `RSI ${data.rsi}`],
     ["波动定价", data.volatility, `预期区间 ${data.expectedRange}`],
     ["关键价位", `看涨墙 ${data.callWall}`, `看跌墙 ${data.putWall}`],
-    ["期权结构", data.gamma, `到期日 ${data.expiration ?? "暂无"}`],
+    ["期权结构", data.gamma, `期限 ${data.optionWindow} · 定价 ${data.expiration ?? "暂无"}`],
   ];
   const cardWidth = 260;
   cards.forEach((card, index) => {
@@ -115,15 +116,49 @@ async function createSnapshot(data: SnapshotExportData) {
 
 export function SnapshotActions({ data }: { data: SnapshotExportData }) {
   const [status, setStatus] = useState("");
+  const [showWechatGuide, setShowWechatGuide] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const isWechat = () => /MicroMessenger/i.test(navigator.userAgent);
+
+  useEffect(() => () => {
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+  }, [previewUrl]);
+
   const copyLink = async () => {
-    await navigator.clipboard.writeText(window.location.href);
-    setStatus("链接已复制");
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setStatus("链接已复制");
+    } catch {
+      setStatus("请复制浏览器地址栏中的链接");
+    }
+  };
+  const shareLink = async () => {
+    if (isWechat()) {
+      setShowWechatGuide(true);
+      return;
+    }
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: `${data.symbol} 收盘研究快照`, text: data.summary, url: window.location.href });
+        setStatus("分享面板已打开");
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+      }
+    }
+    await copyLink();
   };
   const saveImage = async () => {
     setStatus("正在生成图片…");
     try {
       const blob = await createSnapshot(data);
       const file = new File([blob], `${data.symbol}-${data.stockDate}-研究快照.png`, { type: "image/png" });
+      if (isWechat()) {
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        setPreviewUrl(URL.createObjectURL(blob));
+        setStatus("长按图片可保存或发送给朋友");
+        return;
+      }
       if (navigator.share && navigator.canShare?.({ files: [file] })) {
         await navigator.share({ files: [file], title: `${data.symbol} 收盘研究快照`, text: data.summary });
         setStatus("快照已分享");
@@ -141,11 +176,23 @@ export function SnapshotActions({ data }: { data: SnapshotExportData }) {
     }
   };
   return (
-    <div className="snapshot-actions" aria-live="polite">
-      <button type="button" onClick={copyLink}>复制分享链接</button>
-      <button type="button" className="primary" onClick={saveImage}>分享 / 保存图片</button>
-      <button type="button" onClick={() => window.print()}>打印或保存 PDF</button>
-      {status && <span>{status}</span>}
-    </div>
+    <>
+      <div className="snapshot-actions" aria-live="polite">
+        <button type="button" className="primary" onClick={shareLink}>微信分享</button>
+        <button type="button" onClick={saveImage}>保存分享图片</button>
+        <button type="button" onClick={copyLink}>复制链接</button>
+        <button type="button" onClick={() => window.print()}>打印 / PDF</button>
+        {status && <span>{status}</span>}
+      </div>
+      {showWechatGuide && <div className="wechat-share-guide" role="dialog" aria-modal="true" onClick={() => setShowWechatGuide(false)}>
+        <div><b>点击右上角 ···</b><span>选择“发送给朋友”或“分享到朋友圈”</span><small>点击任意位置关闭提示</small></div>
+      </div>}
+      {previewUrl && <div className="snapshot-image-preview" role="dialog" aria-modal="true" onClick={(event) => { if (event.target === event.currentTarget) setPreviewUrl(null); }}>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={previewUrl} alt={`${data.symbol} 研究快照分享图片`} />
+        <p>长按图片保存或发送给朋友</p>
+        <button type="button" onClick={() => setPreviewUrl(null)}>关闭</button>
+      </div>}
+    </>
   );
 }

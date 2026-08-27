@@ -7,8 +7,8 @@ export async function GET(request: Request, context: { params: Promise<{ symbol:
   const symbol = (await context.params).symbol.toUpperCase();
   if (!isSupportedSymbol(symbol)) return Response.json({ error: "Stock not found" }, { status: 404 });
   try {
-    const expiration = new URL(request.url).searchParams.get("expiration");
-    const dashboard = await getStockDashboard(symbol, expiration);
+    const optionWindow = new URL(request.url).searchParams.get("window");
+    const dashboard = await getStockDashboard(symbol, optionWindow);
     if (!dashboard) return Response.json({ error: "No data available" }, { status: 404 });
     return Response.json(dashboard);
   } catch {

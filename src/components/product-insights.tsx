@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { number, percent } from "@/lib/format";
+import type { OptionWindow } from "@/lib/services/stock-dashboard-service";
 
 type Position = { value: number | null; percentile: number | null; sampleSize: number };
 
@@ -33,32 +34,7 @@ export function HistoricalPosition({ positions }: { positions: { rsi14: Position
   );
 }
 
-export type OptionWindowValue = "ALL" | "7" | "30" | "50";
-
-const optionWindows: Array<{ value: OptionWindowValue; label: string }> = [
-  { value: "ALL", label: "全部" },
-  { value: "7", label: "7天" },
-  { value: "30", label: "30天" },
-  { value: "50", label: "50天" },
-];
-
-export function OptionWindowSelector({ symbol, selected }: { symbol: string; selected: OptionWindowValue }) {
-  return (
-    <div className="expiration-selector" aria-label="选择期权剩余到期天数">
-      <div><span>期权到期日</span><small>墙位、未平仓量与 Gamma 按所选范围汇总</small></div>
-      <nav>
-        {optionWindows.map((item) => (
-          <Link href={item.value === "ALL" ? `/stocks/${symbol}` : `/stocks/${symbol}?window=${item.value}`} className={item.value === selected ? "active" : ""} aria-current={item.value === selected ? "page" : undefined} key={item.value}>
-            {item.label}
-          </Link>
-        ))}
-      </nav>
-      <small>7 / 30 / 50 天均指“剩余到期天数以内”；预期区间、ATM IV 与最大痛点采用范围内最近到期日。</small>
-    </div>
-  );
-}
-
-export function SnapshotLink({ symbol, window }: { symbol: string; window: OptionWindowValue }) {
+export function SnapshotLink({ symbol, window }: { symbol: string; window: OptionWindow }) {
   const query = window === "ALL" ? "" : `?window=${window}`;
-  return <Link className="snapshot-link" href={`/stocks/${symbol}/snapshot${query}`}>微信 / 图片分享 ↗</Link>;
+  return <Link className="snapshot-link" href={`/stocks/${symbol}/snapshot${query}`}>分享图片＋链接 ↗</Link>;
 }

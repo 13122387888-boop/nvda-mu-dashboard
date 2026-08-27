@@ -1,4 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
+import { revalidateTag } from "next/cache";
 import { requireServerEnv } from "@/lib/env";
 import { runSync } from "@/lib/sync/sync-service";
 
@@ -22,7 +23,9 @@ export async function GET(request: Request) {
   }
 
   try {
-    return Response.json(await runSync({ triggerType: "CRON", mode: "incremental" }));
+    const result = await runSync({ triggerType: "CRON", mode: "incremental" });
+    revalidateTag("stock-dashboard", "max");
+    return Response.json(result);
   } catch {
     return Response.json({ error: "Sync failed" }, { status: 500 });
   }

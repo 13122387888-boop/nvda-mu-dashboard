@@ -1,5 +1,6 @@
 import { addDays, dateToYmd } from "@/lib/dates";
 import { getPrisma } from "@/lib/db/prisma";
+import { unstable_cache } from "next/cache";
 import { calculateGammaExposureProxy } from "@/lib/indicators/options/gamma-exposure";
 import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics";
 import { putCallOpenInterest } from "@/lib/indicators/options/put-call-ratio";
@@ -136,7 +137,7 @@ export async function getStockCards() {
   }));
 }
 
-export async function getStockDashboard(symbol: SupportedSymbol, requestedWindow?: string | null) {
+async function loadStockDashboardBundle(symbol: SupportedSymbol) {
   const prisma = getPrisma();
   const metrics = await prisma.stockMetrics.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" } });
   if (!metrics) return null;
@@ -160,82 +161,108 @@ export async function getStockDashboard(symbol: SupportedSymbol, requestedWindow
   const ma50 = movingAverageSeries(closes, 50);
   const ma200 = movingAverageSeries(closes, 200);
   const close = Number(metrics.close);
-  const optionWindow = normalizeOptionWindow(requestedWindow);
-  const optionWindowLimit = OPTION_WINDOW_LIMITS[optionWindow];
-  const optionRows = optionWindowLimit === null || !metrics.optionsTradeDate
-    ? allOptionRows
-    : allOptionRows.filter((row) => remainingDays(metrics.optionsTradeDate!, row.expiration) <= optionWindowLimit);
-  const optionRecords = optionRows.map(toOptionRecord);
-  const pricingMetrics = calculateOptionMetrics(optionRecords, close);
-  const gammaExposure = calculateGammaExposureProxy(optionRows.map((row) => ({
-    optionType: row.optionType,
-    gamma: numberOrNull(row.gamma),
-    openInterest: row.openInterest === null ? null : Number(row.openInterest),
-    contractMultiplier: row.contractMultiplier,
-  })), close);
-  const oi = new Map<number, { strike: number; callOi: number; putOi: number }>();
-  for (const row of optionRows) {
-    const strike = Number(row.strike);
-    if (strike < close * 0.75 || strike > close * 1.25) continue;
-    const point = oi.get(strike) ?? { strike, callOi: 0, putOi: 0 };
-    const value = row.openInterest === null ? 0 : Number(row.openInterest);
-    if (row.optionType === "CALL") point.callOi += value;
-    else point.putOi += value;
-    oi.set(strike, point);
-  }
-
   const currentRsi14 = numberOrNull(metrics.rsi14);
   const currentRv20 = numberOrNull(metrics.rv20);
   const currentMa20 = numberOrNull(metrics.ma20);
   const historicalPositions = buildHistoricalPositions(closes, { rsi14: currentRsi14, rv20: currentRv20, ma20: currentMa20 });
+  const optionWindows = Object.keys(OPTION_WINDOW_LIMITS) as OptionWindow[];
+  const optionWindowCounts = Object.fromEntries(optionWindows.map((window) => {
+    const limit = OPTION_WINDOW_LIMITS[window];
+    const count = limit === null || !metrics.optionsTradeDate
+      ? allOptionRows.length
+      : allOptionRows.filter((row) => remainingDays(metrics.optionsTradeDate!, row.expiration) <= limit).length;
+    return [window, count];
+  })) as Record<OptionWindow, number>;
+  const priceHistory = calculationHistory.map((row, index) => ({
+    date: dateToYmd(row.tradeDate),
+    open: Number(row.open),
+    high: Number(row.high),
+    low: Number(row.low),
+    close: Number(row.close),
+    ma20: ma20[index],
+    ma50: ma50[index],
+    ma200: ma200[index],
+  })).filter((point) => point.date >= chartStartDate);
 
-  return {
-    symbol,
-    name: STOCKS[symbol].name,
-    accent: STOCKS[symbol].accent,
-    stockDate: dateToYmd(metrics.tradeDate),
-    optionsDate: optionRows.length && metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null,
-    optionsExpiration: pricingMetrics.optionsExpiration,
-    optionWindow,
-    optionWindowLabel: OPTION_WINDOW_LABELS[optionWindow],
-    quote: {
-      close,
-      dailyChange: numberOrNull(metrics.dailyChange),
-      dailyChangePct: numberOrNull(metrics.dailyChangePct),
-      marketStatus: metrics.marketStatus,
-    },
-    trend: {
-      ma20: currentMa20,
-      ma50: numberOrNull(metrics.ma50),
-      ma200: numberOrNull(metrics.ma200),
-      rsi14: currentRsi14,
-      rv20: currentRv20,
-    },
-    options: {
-      expectedMove: pricingMetrics.expectedMove,
-      expectedMovePct: pricingMetrics.expectedMovePct,
-      expectedUpper: pricingMetrics.expectedUpper,
-      expectedLower: pricingMetrics.expectedLower,
-      putCallOi: putCallOpenInterest(optionRecords),
-      maxPain: pricingMetrics.maxPain,
-      callWall: aggregateOptionWall(optionRecords, "CALL", close),
-      putWall: aggregateOptionWall(optionRecords, "PUT", close),
-      atmIv: pricingMetrics.atmIv,
-      gammaExposure,
-    },
-    historicalPositions,
-    priceHistory: calculationHistory.map((row, index) => ({
-      date: dateToYmd(row.tradeDate),
-      open: Number(row.open),
-      high: Number(row.high),
-      low: Number(row.low),
-      close: Number(row.close),
-      ma20: ma20[index],
-      ma50: ma50[index],
-      ma200: ma200[index],
-    })).filter((point) => point.date >= chartStartDate),
-    optionOpenInterest: [...oi.values()],
-  };
+  const dashboards = optionWindows.map((optionWindow) => {
+    const optionWindowLimit = OPTION_WINDOW_LIMITS[optionWindow];
+    const optionRows = optionWindowLimit === null || !metrics.optionsTradeDate
+      ? allOptionRows
+      : allOptionRows.filter((row) => remainingDays(metrics.optionsTradeDate!, row.expiration) <= optionWindowLimit);
+    const optionRecords = optionRows.map(toOptionRecord);
+    const pricingMetrics = calculateOptionMetrics(optionRecords, close);
+    const gammaExposure = calculateGammaExposureProxy(optionRows.map((row) => ({
+      optionType: row.optionType,
+      gamma: numberOrNull(row.gamma),
+      openInterest: row.openInterest === null ? null : Number(row.openInterest),
+      contractMultiplier: row.contractMultiplier,
+    })), close);
+    const oi = new Map<number, { strike: number; callOi: number; putOi: number }>();
+    for (const row of optionRows) {
+      const strike = Number(row.strike);
+      if (strike < close * 0.75 || strike > close * 1.25) continue;
+      const point = oi.get(strike) ?? { strike, callOi: 0, putOi: 0 };
+      const value = row.openInterest === null ? 0 : Number(row.openInterest);
+      if (row.optionType === "CALL") point.callOi += value;
+      else point.putOi += value;
+      oi.set(strike, point);
+    }
+
+    const dashboard = {
+      symbol,
+      name: STOCKS[symbol].name,
+      accent: STOCKS[symbol].accent,
+      stockDate: dateToYmd(metrics.tradeDate),
+      optionsDate: optionRows.length && metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null,
+      optionsExpiration: pricingMetrics.optionsExpiration,
+      optionWindow,
+      optionWindowLabel: OPTION_WINDOW_LABELS[optionWindow],
+      optionWindowCounts,
+      quote: {
+        close,
+        dailyChange: numberOrNull(metrics.dailyChange),
+        dailyChangePct: numberOrNull(metrics.dailyChangePct),
+        marketStatus: metrics.marketStatus,
+      },
+      trend: {
+        ma20: currentMa20,
+        ma50: numberOrNull(metrics.ma50),
+        ma200: numberOrNull(metrics.ma200),
+        rsi14: currentRsi14,
+        rv20: currentRv20,
+      },
+      options: {
+        expectedMove: pricingMetrics.expectedMove,
+        expectedMovePct: pricingMetrics.expectedMovePct,
+        expectedUpper: pricingMetrics.expectedUpper,
+        expectedLower: pricingMetrics.expectedLower,
+        putCallOi: putCallOpenInterest(optionRecords),
+        maxPain: pricingMetrics.maxPain,
+        callWall: aggregateOptionWall(optionRecords, "CALL", close),
+        putWall: aggregateOptionWall(optionRecords, "PUT", close),
+        atmIv: pricingMetrics.atmIv,
+        gammaExposure,
+      },
+      historicalPositions,
+      priceHistory,
+      optionOpenInterest: [...oi.values()],
+    };
+    return [optionWindow, dashboard] as const;
+  });
+
+  return Object.fromEntries(dashboards) as Record<OptionWindow, (typeof dashboards)[number][1]>;
+}
+
+const getCachedStockDashboardBundle = unstable_cache(
+  loadStockDashboardBundle,
+  ["stock-dashboard-bundle-v1"],
+  { revalidate: 300, tags: ["stock-dashboard"] },
+);
+
+export async function getStockDashboard(symbol: SupportedSymbol, requestedWindow?: string | null) {
+  const optionWindow = normalizeOptionWindow(requestedWindow);
+  const bundle = await getCachedStockDashboardBundle(symbol);
+  return bundle?.[optionWindow] ?? null;
 }
 
 export async function getDebugSnapshot() {

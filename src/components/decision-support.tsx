@@ -44,7 +44,7 @@ export function ResearchBrief({ input }: { input: DecisionSupportInput }) {
   const targets: Record<string, string> = {
     "趋势": "price-trend",
     "动量": "momentum-overview",
-    "波动定价": "momentum-overview",
+    "波动定价": "momentum-pricing",
     "期权结构": "options-gamma",
   };
   return (
@@ -54,6 +54,7 @@ export function ResearchBrief({ input }: { input: DecisionSupportInput }) {
         <b>规则观察</b>
       </div>
       <p className="brief-summary">{brief.summary}</p>
+      <div className="brief-action-hint"><b>可点击</b><span>选择任一摘要，直接定位到对应依据</span></div>
       <div className="brief-grid">
         {brief.items.map((item) => (
           <BriefLink targetId={targets[item.label]} className={`brief-item ${item.tone}`} key={item.label}>
@@ -119,6 +120,9 @@ export function KeyDistanceMap({
           ))}
           <span className="level-bound lower">{money(rawMin)}</span><span className="level-bound upper">{money(rawMax)}</span>
         </div>
+      </div>
+      <div className="level-ladder" aria-label="关键价位完整列表">
+        {[...ordered].reverse().map((level) => <div className={level.className} key={level.label}><i /><span>{level.label}</span><b>{money(level.value)}</b><small>{level.label === "现价" ? "基准" : relative(level.value)}</small></div>)}
       </div>
       <div className="distance-grid">
         <div><MetricLabel metric="callWall">看涨墙相对现价</MetricLabel><strong>{relative(callWall)}</strong><small>{money(callWall)}</small></div>

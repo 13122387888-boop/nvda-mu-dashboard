@@ -1,6 +1,6 @@
-# NVDA + MU EOD Research MVP
+# US Equity EOD Research Dashboard
 
-A product-validation dashboard for **NVDA** and **MU** only. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
+A product-validation dashboard for a configuration-driven US equity watchlist. The initial pool covers **NVDA, MU, SNDK, MSFT, and TSLA**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
 
 This is research software, not a real-time feed or investment-advice product.
 
@@ -88,7 +88,7 @@ The committed initial migration creates `stock_daily`, `option_eod`, `stock_metr
 npm run sync:data
 ```
 
-Both commands are idempotent. They use unique keys and upserts, write large datasets in transaction batches, isolate NVDA and MU failures, preserve a successful symbol when the other fails, and write a `SUCCESS`, `PARTIAL`, or `FAILED` `sync_run`. Logs never print connection URLs or API keys.
+Both commands are idempotent. They use unique keys, bulk conflict-safe inserts, and recent-bar upserts; isolate failures by symbol; preserve successful symbols when another fails; and write a `SUCCESS`, `PARTIAL`, or `FAILED` `sync_run`. Logs never print connection URLs or API keys. Run `npm run audit:data` to verify yearly coverage and latest stock, option, and metric dates.
 
 Vercel Cron calls `GET /api/cron/sync` at `23:30 UTC` on weekdays. It requires:
 
@@ -100,14 +100,14 @@ Cron runs incremental sync only. Bootstrap remains a one-time manual operation.
 
 ## 4. APIs and pages
 
-- `/` — NVDA and MU overview cards
-- `/stocks/NVDA`, `/stocks/MU` — EOD dashboard
+- `/` — configurable stock scanner with filters and attention-first sorting
+- `/stocks/<SYMBOL>` — EOD dashboard for each configured symbol
 - `/api/v1/stocks` — tracked-stock summaries
-- `/api/v1/stocks/NVDA/dashboard`, `/api/v1/stocks/MU/dashboard` — reusable dashboard payloads
+- `/api/v1/stocks/<SYMBOL>/dashboard` — reusable dashboard payload
 - `/api/health` — database connectivity and latest sync time
 - `/debug` — diagnostics only when `ENABLE_DEBUG_PAGE=true`
 
-Symbols outside the NVDA/MU allowlist return 404. The public APIs do not expose raw full chains, provider proxying, database queries, CSV, or bulk exports.
+Symbols outside `src/lib/stocks.ts` return 404. The public APIs do not expose raw full chains, provider proxying, database queries, CSV, or bulk exports.
 
 ## 5. Validation
 
@@ -147,7 +147,7 @@ No push or public repository is created automatically. If a remote already exist
 
 4. Deploy the Next.js project. Build does not call Supabase or OnclickMedia.
 5. Before launch, run `npm run sync:bootstrap` once against the production Supabase project.
-6. Verify `/api/health`, `/stocks/NVDA`, `/stocks/MU`, and one authorized Cron call.
+6. Verify `/api/health`, at least two configured stock pages, and one authorized Cron call.
 
 Vercel's default domain is sufficient. A custom domain is optional later. The deployed app depends only on Vercel, Supabase, and OnclickMedia, so the local computer can be off.
 

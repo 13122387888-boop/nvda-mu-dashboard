@@ -1,7 +1,6 @@
-import Link from "next/link";
 import { connection } from "next/server";
 import { Footer, Header } from "@/components/site-chrome";
-import { money, percent, STATUS_LABELS } from "@/lib/format";
+import { StockScanner } from "@/components/stock-scanner";
 import { getStockCards, STOCKS, SUPPORTED_SYMBOLS } from "@/lib/services/stock-dashboard-service";
 
 export default async function Home() {
@@ -16,6 +15,8 @@ export default async function Home() {
       close: null,
       dailyChangePct: null,
       marketStatus: "INSUFFICIENT_DATA",
+      gammaRegime: "UNAVAILABLE" as const,
+      attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
       dataDate: null,
     }));
   }
@@ -23,30 +24,14 @@ export default async function Home() {
   return (
     <main className="shell">
       <Header />
-      <section className="hero">
+      <section className="hero home-hero">
         <p className="eyebrow">美股收盘行情与期权观察</p>
-        <h1>两只股票，一个清晰可靠的收盘视图。</h1>
+        <h1>{cards.length}只热门股票，先找到今天值得细看的对象。</h1>
         <p className="hero-copy">
-          聚焦英伟达与美光科技，把价格趋势、动量、波动率和期权持仓集中在一个页面，并明确展示每项数据的交易日期。
+          首页只做快速筛选：比较收盘表现、趋势、Gamma 与最重要的关注理由；点击股票后再进入完整研究页。
         </p>
       </section>
-
-      <section className="stock-grid" aria-label="关注股票">
-        {cards.map((stock) => (
-          <Link className="stock-card" href={`/stocks/${stock.symbol}`} key={stock.symbol} style={{ "--accent": stock.accent } as React.CSSProperties}>
-            <div className="stock-card-top"><span className="ticker">{stock.symbol}</span><span className="eod-badge">收盘数据</span></div>
-            <h2>{stock.name}</h2>
-            <div className="price-row">
-              <strong>{money(stock.close)}</strong>
-              <span className={stock.dailyChangePct !== null && stock.dailyChangePct >= 0 ? "positive" : "negative"}>
-                {stock.dailyChangePct === null ? "等待数据同步" : `${stock.dailyChangePct >= 0 ? "+" : ""}${percent(stock.dailyChangePct, true)}`}
-              </span>
-            </div>
-            <div className="card-meta"><span>趋势状态</span><b><i className={`status-dot ${stock.marketStatus.toLowerCase()}`} />{STATUS_LABELS[stock.marketStatus]}</b></div>
-            <div className="card-footer"><span>数据日期 · {stock.dataDate ?? "—"}</span><span aria-hidden="true">查看分析 →</span></div>
-          </Link>
-        ))}
-      </section>
+      <StockScanner cards={cards} />
       {!cards.some((card) => card.dataDate) && (
         <div className="empty-callout"><b>暂无可用数据。</b><span>请先执行 <code>npm run sync:bootstrap</code>。</span></div>
       )}

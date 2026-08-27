@@ -1,4 +1,6 @@
-export type SupportedSymbol = "NVDA" | "MU";
+import type { SupportedSymbol } from "@/lib/stocks";
+
+export type { SupportedSymbol } from "@/lib/stocks";
 export type OptionSide = "CALL" | "PUT";
 
 export interface StockDailyRecord {

@@ -14,19 +14,19 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
-  title: { default: "NVDA + MU 收盘研究", template: "%s · 收盘研究" },
-  description: "英伟达与美光科技的美股收盘行情、趋势指标与期权持仓研究看板。",
+  title: { default: "热门美股收盘研究", template: "%s · 收盘研究" },
+  description: "热门美股的收盘行情、趋势、波动率与期权持仓研究看板。",
   openGraph: {
-    title: "NVDA + MU 收盘研究",
-    description: "集中查看价格趋势、动量、波动率与期权持仓，并明确标注数据日期。",
+    title: "热门美股收盘研究",
+    description: "快速扫描关注理由，再查看价格趋势、波动率与期权持仓依据。",
     type: "website",
-    images: [{ url: "/og.png", width: 1200, height: 630, alt: "NVDA + MU EOD Research" }],
+    images: [{ url: "/og-v2.jpg", width: 1200, height: 630, alt: "美股收盘研究" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "NVDA + MU 收盘研究",
-    description: "集中查看价格趋势、动量、波动率与期权持仓，并明确标注数据日期。",
-    images: ["/og.png"],
+    title: "热门美股收盘研究",
+    description: "快速扫描关注理由，再查看价格趋势、波动率与期权持仓依据。",
+    images: ["/og-v2.jpg"],
   },
 };
 

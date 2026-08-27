@@ -5,11 +5,10 @@ import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics"
 import { calculateStockMetrics } from "@/lib/indicators/stock-metrics";
 import { OnclickMediaProvider } from "@/lib/providers/onclickmedia/onclickmedia-provider";
 import type { OptionContractRecord, StockDailyRecord, SupportedSymbol } from "@/lib/providers/types";
+import { SUPPORTED_SYMBOLS } from "@/lib/stocks";
 
-const SYMBOLS: SupportedSymbol[] = ["NVDA", "MU"];
-// Keep each transaction comfortably below Prisma's default five-second limit.
-// Shared Supabase poolers can add noticeable latency across regions.
-const BATCH_SIZE = 25;
+const SYMBOLS: SupportedSymbol[] = SUPPORTED_SYMBOLS;
+const CREATE_BATCH_SIZE = 200;
 
 type SymbolSyncResult = {
   status: "SUCCESS" | "PARTIAL" | "FAILED";
@@ -30,97 +29,65 @@ export type SyncSummary = {
 
 function chunks<T>(rows: T[]): T[][] {
   const output: T[][] = [];
-  for (let index = 0; index < rows.length; index += BATCH_SIZE) output.push(rows.slice(index, index + BATCH_SIZE));
+  for (let index = 0; index < rows.length; index += CREATE_BATCH_SIZE) output.push(rows.slice(index, index + CREATE_BATCH_SIZE));
   return output;
 }
 
 async function upsertStockRows(rows: StockDailyRecord[]) {
   const prisma = getPrisma();
-  for (const batch of chunks(rows)) {
-    await prisma.$transaction(
-      batch.map((row) =>
-        prisma.stockDaily.upsert({
-          where: { symbol_tradeDate: { symbol: row.symbol, tradeDate: parseYmd(row.tradeDate) } },
-          create: {
-            symbol: row.symbol,
-            tradeDate: parseYmd(row.tradeDate),
-            open: row.open,
-            high: row.high,
-            low: row.low,
-            close: row.close,
-            adjustedClose: row.adjustedClose,
-            volume: row.volume === null ? null : BigInt(row.volume),
-            provider: row.provider,
-          },
-          update: {
-            open: row.open,
-            high: row.high,
-            low: row.low,
-            close: row.close,
-            adjustedClose: row.adjustedClose,
-            volume: row.volume === null ? null : BigInt(row.volume),
-            provider: row.provider,
-          },
-        }),
-      ),
-    );
+  const data = rows.map((row) => ({
+    symbol: row.symbol,
+    tradeDate: parseYmd(row.tradeDate),
+    open: row.open,
+    high: row.high,
+    low: row.low,
+    close: row.close,
+    adjustedClose: row.adjustedClose,
+    volume: row.volume === null ? null : BigInt(row.volume),
+    provider: row.provider,
+  }));
+  for (const batch of chunks(data)) await prisma.stockDaily.createMany({ data: batch, skipDuplicates: true });
+
+  // Providers can revise their most recent EOD bars. Refresh a small tail without
+  // wrapping cross-region calls in a transaction that can expire at five seconds.
+  for (const row of rows.slice(-8)) {
+    await prisma.stockDaily.upsert({
+      where: { symbol_tradeDate: { symbol: row.symbol, tradeDate: parseYmd(row.tradeDate) } },
+      create: {
+        symbol: row.symbol, tradeDate: parseYmd(row.tradeDate), open: row.open, high: row.high, low: row.low,
+        close: row.close, adjustedClose: row.adjustedClose, volume: row.volume === null ? null : BigInt(row.volume), provider: row.provider,
+      },
+      update: {
+        open: row.open, high: row.high, low: row.low, close: row.close, adjustedClose: row.adjustedClose,
+        volume: row.volume === null ? null : BigInt(row.volume), provider: row.provider,
+      },
+    });
   }
 }
 
 async function upsertOptionRows(rows: OptionContractRecord[]) {
   const prisma = getPrisma();
-  for (const batch of chunks(rows)) {
-    await prisma.$transaction(
-      batch.map((row) =>
-        prisma.optionEod.upsert({
-          where: {
-            symbol_tradeDate_expiration_optionType_strike: {
-              symbol: row.symbol,
-              tradeDate: parseYmd(row.tradeDate),
-              expiration: parseYmd(row.expiration),
-              optionType: row.optionType,
-              strike: row.strike,
-            },
-          },
-          create: {
-            symbol: row.symbol,
-            tradeDate: parseYmd(row.tradeDate),
-            expiration: parseYmd(row.expiration),
-            optionType: row.optionType,
-            strike: row.strike,
-            contractSymbol: row.contractSymbol,
-            contractMultiplier: row.contractMultiplier,
-            bid: row.bid,
-            ask: row.ask,
-            last: row.last,
-            volume: row.volume === null ? null : BigInt(row.volume),
-            openInterest: row.openInterest === null ? null : BigInt(row.openInterest),
-            impliedVolatility: row.impliedVolatility,
-            delta: row.delta,
-            gamma: row.gamma,
-            theta: row.theta,
-            vega: row.vega,
-            provider: row.provider,
-          },
-          update: {
-            contractSymbol: row.contractSymbol,
-            contractMultiplier: row.contractMultiplier,
-            bid: row.bid,
-            ask: row.ask,
-            last: row.last,
-            volume: row.volume === null ? null : BigInt(row.volume),
-            openInterest: row.openInterest === null ? null : BigInt(row.openInterest),
-            impliedVolatility: row.impliedVolatility,
-            delta: row.delta,
-            gamma: row.gamma,
-            theta: row.theta,
-            vega: row.vega,
-            provider: row.provider,
-          },
-        }),
-      ),
-    );
-  }
+  const data = rows.map((row) => ({
+    symbol: row.symbol,
+    tradeDate: parseYmd(row.tradeDate),
+    expiration: parseYmd(row.expiration),
+    optionType: row.optionType,
+    strike: row.strike,
+    contractSymbol: row.contractSymbol,
+    contractMultiplier: row.contractMultiplier,
+    bid: row.bid,
+    ask: row.ask,
+    last: row.last,
+    volume: row.volume === null ? null : BigInt(row.volume),
+    openInterest: row.openInterest === null ? null : BigInt(row.openInterest),
+    impliedVolatility: row.impliedVolatility,
+    delta: row.delta,
+    gamma: row.gamma,
+    theta: row.theta,
+    vega: row.vega,
+    provider: row.provider,
+  }));
+  for (const batch of chunks(data)) await prisma.optionEod.createMany({ data: batch, skipDuplicates: true });
 }
 
 async function loadStockHistory(symbol: SupportedSymbol): Promise<StockDailyRecord[]> {

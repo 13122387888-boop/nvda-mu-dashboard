@@ -8,13 +8,9 @@ import { movingAverageSeries } from "@/lib/indicators/moving-average";
 import { realizedVolatility } from "@/lib/indicators/realized-volatility";
 import { wilderRsi } from "@/lib/indicators/rsi";
 import type { OptionContractRecord, SupportedSymbol } from "@/lib/providers/types";
+import { STOCKS, SUPPORTED_SYMBOLS } from "@/lib/stocks";
 
-export const STOCKS: Record<SupportedSymbol, { name: string; accent: string }> = {
-  NVDA: { name: "英伟达 NVIDIA", accent: "#76b900" },
-  MU: { name: "美光科技 Micron", accent: "#4f8cff" },
-};
-
-export const SUPPORTED_SYMBOLS = Object.keys(STOCKS) as SupportedSymbol[];
+export { isSupportedSymbol, STOCKS, SUPPORTED_SYMBOLS } from "@/lib/stocks";
 
 export type OptionWindow = "ALL" | "7" | "30" | "50";
 
@@ -31,10 +27,6 @@ const OPTION_WINDOW_LABELS: Record<OptionWindow, string> = {
   "30": "30天内",
   "50": "50天内",
 };
-
-export function isSupportedSymbol(value: string): value is SupportedSymbol {
-  return value === "NVDA" || value === "MU";
-}
 
 const numberOrNull = (value: { toString(): string } | null) => value === null ? null : Number(value);
 
@@ -121,20 +113,118 @@ function buildHistoricalPositions(closes: number[], current: { rsi14: number | n
   };
 }
 
-export async function getStockCards() {
+type AttentionTone = "positive" | "negative" | "warning" | "neutral";
+
+function percentDistance(value: number | null, close: number) {
+  return value === null || close <= 0 ? null : Math.abs(value / close - 1) * 100;
+}
+
+function stockAttention(input: {
+  close: number;
+  marketStatus: string;
+  optionsDate: string | null;
+  gammaRegime: "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
+  expectedUpper: number | null;
+  expectedLower: number | null;
+  callWall: number | null;
+  putWall: number | null;
+  atmIv: number | null;
+  rv20: number | null;
+}): { label: string; detail: string; score: number; tone: AttentionTone } {
+  if (!input.optionsDate) return { label: "期权数据待补充", detail: "价格趋势可用，期权结构暂不可判断", score: 95, tone: "warning" };
+  if (input.gammaRegime === "NEGATIVE") return { label: "负 Gamma 环境", detail: "短线波动可能更容易被放大", score: 92, tone: "negative" };
+
+  const rangeLevels = [
+    { label: "接近预期上沿", value: input.expectedUpper },
+    { label: "接近预期下沿", value: input.expectedLower },
+  ].map((item) => ({ ...item, distance: percentDistance(item.value, input.close) }))
+    .filter((item): item is typeof item & { distance: number } => item.distance !== null)
+    .sort((a, b) => a.distance - b.distance);
+  if (rangeLevels[0] && rangeLevels[0].distance <= 2.5) {
+    return { label: rangeLevels[0].label, detail: `距离约 ${rangeLevels[0].distance.toFixed(1)}%`, score: 84 - rangeLevels[0].distance, tone: "warning" };
+  }
+
+  const wallLevels = [
+    { label: "接近看涨墙", value: input.callWall },
+    { label: "接近看跌墙", value: input.putWall },
+  ].map((item) => ({ ...item, distance: percentDistance(item.value, input.close) }))
+    .filter((item): item is typeof item & { distance: number } => item.distance !== null)
+    .sort((a, b) => a.distance - b.distance);
+  if (wallLevels[0] && wallLevels[0].distance <= 3) {
+    return { label: wallLevels[0].label, detail: `距离约 ${wallLevels[0].distance.toFixed(1)}%`, score: 76 - wallLevels[0].distance, tone: "warning" };
+  }
+
+  if (input.atmIv !== null && input.rv20 !== null && input.rv20 > 0 && input.atmIv / input.rv20 >= 1.35) {
+    return { label: "隐含波动明显偏高", detail: "IV 高于近期实际波动", score: 68, tone: "warning" };
+  }
+  if (input.marketStatus === "STRONG_BULLISH") return { label: "趋势强势偏多", detail: "价格与均线结构保持强势", score: 52, tone: "positive" };
+  if (input.marketStatus === "BEARISH") return { label: "趋势偏空", detail: "价格处于偏弱趋势结构", score: 56, tone: "negative" };
+  return { label: "结构暂无明显异常", detail: "进入详情查看完整依据", score: 20, tone: "neutral" };
+}
+
+async function loadStockCards() {
   const prisma = getPrisma();
   return Promise.all(SUPPORTED_SYMBOLS.map(async (symbol) => {
     const metrics = await prisma.stockMetrics.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" } });
+    if (!metrics) {
+      return {
+        symbol,
+        name: STOCKS[symbol].name,
+        shortName: STOCKS[symbol].shortName,
+        accent: STOCKS[symbol].accent,
+        close: null,
+        dailyChangePct: null,
+        marketStatus: "INSUFFICIENT_DATA" as const,
+        gammaRegime: "UNAVAILABLE" as const,
+        attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
+        dataDate: null,
+      };
+    }
+    const optionRows = metrics.optionsTradeDate
+      ? await prisma.optionEod.findMany({
+          where: { symbol, tradeDate: metrics.optionsTradeDate, expiration: { gt: metrics.optionsTradeDate } },
+          select: { optionType: true, gamma: true, openInterest: true, contractMultiplier: true },
+        })
+      : [];
+    const close = Number(metrics.close);
+    const gammaRegime = calculateGammaExposureProxy(optionRows.map((row) => ({
+      optionType: row.optionType,
+      gamma: numberOrNull(row.gamma),
+      openInterest: row.openInterest === null ? null : Number(row.openInterest),
+      contractMultiplier: row.contractMultiplier,
+    })), close).regime;
+    const optionsDate = metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null;
+    const attention = stockAttention({
+      close,
+      marketStatus: metrics.marketStatus,
+      optionsDate,
+      gammaRegime,
+      expectedUpper: numberOrNull(metrics.expectedUpper),
+      expectedLower: numberOrNull(metrics.expectedLower),
+      callWall: numberOrNull(metrics.callWall),
+      putWall: numberOrNull(metrics.putWall),
+      atmIv: numberOrNull(metrics.atmIv),
+      rv20: numberOrNull(metrics.rv20),
+    });
     return {
       symbol,
       name: STOCKS[symbol].name,
+      shortName: STOCKS[symbol].shortName,
       accent: STOCKS[symbol].accent,
-      close: metrics ? Number(metrics.close) : null,
-      dailyChangePct: metrics ? numberOrNull(metrics.dailyChangePct) : null,
-      marketStatus: metrics?.marketStatus ?? "INSUFFICIENT_DATA",
-      dataDate: metrics ? dateToYmd(metrics.tradeDate) : null,
+      close,
+      dailyChangePct: numberOrNull(metrics.dailyChangePct),
+      marketStatus: metrics.marketStatus,
+      gammaRegime,
+      attention,
+      dataDate: dateToYmd(metrics.tradeDate),
     };
   }));
+}
+
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v2"], { revalidate: 300, tags: ["stock-dashboard"] });
+
+export async function getStockCards() {
+  return getCachedStockCards();
 }
 
 async function loadStockDashboardBundle(symbol: SupportedSymbol) {
@@ -255,7 +345,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v1"],
+  ["stock-dashboard-bundle-v2"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

@@ -94,6 +94,15 @@ export type ExpectedRangeValidation = {
   touchedLower: boolean;
 };
 
+export type WallContinuationStats = {
+  callSampleSize: number;
+  callHoldCount: number;
+  callHoldRate: number | null;
+  putSampleSize: number;
+  putHoldCount: number;
+  putHoldRate: number | null;
+};
+
 export function buildOptionResearchHistory(
   snapshots: Array<{ tradeDate: string; records: OptionContractRecord[] }>,
   stocks: StockDailyRecord[],
@@ -143,6 +152,24 @@ export function buildOptionResearchHistory(
     });
   }
 
+  let callSampleSize = 0;
+  let callHoldCount = 0;
+  let putSampleSize = 0;
+  let putHoldCount = 0;
+  for (const point of points) {
+    const stockIndex = orderedStocks.findLastIndex((row) => row.tradeDate <= point.date);
+    const nextStock = stockIndex >= 0 ? orderedStocks[stockIndex + 1] : null;
+    if (!nextStock) continue;
+    if (point.callWall !== null && point.close >= point.callWall) {
+      callSampleSize += 1;
+      if (nextStock.close >= point.callWall) callHoldCount += 1;
+    }
+    if (point.putWall !== null && point.close <= point.putWall) {
+      putSampleSize += 1;
+      if (nextStock.close <= point.putWall) putHoldCount += 1;
+    }
+  }
+
   return {
     points,
     validation: {
@@ -152,6 +179,14 @@ export function buildOptionResearchHistory(
       upperTouchCount: validations.filter((row) => row.touchedUpper).length,
       lowerTouchCount: validations.filter((row) => row.touchedLower).length,
       samples: validations.slice(-6).reverse(),
+      wall: {
+        callSampleSize,
+        callHoldCount,
+        callHoldRate: callSampleSize ? callHoldCount / callSampleSize : null,
+        putSampleSize,
+        putHoldCount,
+        putHoldRate: putSampleSize ? putHoldCount / putSampleSize : null,
+      } satisfies WallContinuationStats,
     },
   };
 }

@@ -88,12 +88,15 @@ export function ResearchOverview({
       : volatilityState === "隐含波动较低" ? (ivPercentile.percentile <= 30 ? "support" : ivPercentile.percentile >= 70 ? "conflict" : "neutral")
         : ivPercentile.percentile >= 30 && ivPercentile.percentile <= 70 ? "support" : "neutral";
   const evidence = [
-    { label: "趋势", value: `${trendScore ?? "—"}/100`, verdict: trendVerdict },
-    { label: "量能", value: volumeLabel, verdict: volumeVerdict },
-    { label: "Gamma", value: gammaLabel, verdict: gammaVerdict },
-    { label: "IV位置", value: ivPercentile.percentile === null ? ivPercentile.label : `${ivPercentile.percentile}%分位`, verdict: ivVerdict },
+    { label: "趋势", value: `${trendScore ?? "—"}/100`, verdict: trendVerdict, targetId: "price-trend" },
+    { label: "量能", value: volumeLabel, verdict: volumeVerdict, targetId: "price-chart" },
+    { label: "Gamma", value: gammaLabel, verdict: gammaVerdict, targetId: "options-gamma" },
+    { label: "IV位置", value: ivPercentile.percentile === null ? ivPercentile.label : `${ivPercentile.percentile}%分位`, verdict: ivVerdict, targetId: "momentum-pricing" },
   ] as const;
   const verdictLabels = { support: "支持", neutral: "中性", conflict: "冲突" } as const;
+  const verdictIcons = { support: "✓", neutral: "·", conflict: "!" } as const;
+  const evidenceCounts = evidence.reduce((counts, item) => ({ ...counts, [item.verdict]: counts[item.verdict] + 1 }), { support: 0, neutral: 0, conflict: 0 });
+  const availableEvidence = evidence.filter((item) => !item.value.includes("暂无") && !item.value.includes("积累中") && !item.value.startsWith("—")).length;
   const observe = !nearest
     ? "先等待期权关键位数据恢复，再结合日线收盘确认结构。"
     : nearest.delta >= 0
@@ -105,7 +108,7 @@ export function ResearchOverview({
       <div className="overview-heading"><span>首屏研究摘要</span><b>日终数据 · {stockDate}</b></div>
       <div className="overview-decision-grid">
         <article className="decision-conclusion"><span>01 结论</span><h2 id="research-overview-title">{brief.summary}</h2><small>{confidence.label}可信度 · {confidence.reason}</small></article>
-        <article className="decision-evidence"><span>02 依据</span><div className="evidence-grid">{evidence.map((item) => <div className={`evidence-item evidence-${item.verdict}`} key={item.label}><div><span>{item.label}</span><em>{verdictLabels[item.verdict]}</em></div><strong>{item.value}</strong></div>)}</div><small className="evidence-legend">支持＝与结论同向 · 冲突＝需要复核</small></article>
+        <article className="decision-evidence"><span>02 依据</span><div className="evidence-summary"><strong>{evidenceCounts.support}/{availableEvidence || evidence.length} 条证据与结论一致</strong><small>{evidenceCounts.support}支持 · {evidenceCounts.neutral}中性 · {evidenceCounts.conflict}冲突</small></div><div className="evidence-balance" aria-label="证据一致性分布">{evidence.map((item) => <i className={`evidence-${item.verdict}`} key={item.label} />)}</div><div className="evidence-grid">{evidence.map((item) => <BriefLink targetId={item.targetId} hint="查看 →" className={`evidence-item evidence-${item.verdict}`} key={item.label}><div><span>{item.label}</span><em>{verdictIcons[item.verdict]} {verdictLabels[item.verdict]}</em></div><strong>{item.value}</strong></BriefLink>)}</div><small className="evidence-legend">支持＝强化当前摘要 · 冲突＝提示复核；Gamma 只描述波动机制，不判断涨跌。</small></article>
         <article><span>03 观察条件</span><strong>{nearest ? `${nearest.label} ${money(nearest.value)}` : "关键位暂无"}</strong><p>{observe}</p><small>{nearestPosition}</small></article>
       </div>
       <footer><span>回答当前结构与观察条件，不预测下一交易日必然涨跌。</span></footer>

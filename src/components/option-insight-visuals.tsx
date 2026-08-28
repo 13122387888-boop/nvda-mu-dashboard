@@ -1,5 +1,8 @@
-import type { CSSProperties } from "react";
+"use client";
+
+import { useState, type CSSProperties } from "react";
 import { money, percent } from "@/lib/format";
+import type { IvSkewResult } from "@/lib/indicators/options/iv-skew";
 
 type WallProfile = {
   strike: number | null;
@@ -44,11 +47,13 @@ export function WallStrengthVisual({ call, put }: { call: WallProfile; put: Wall
 
 type TermPoint = { expiration: string; daysToExpiration: number; atmIv: number; contractCount: number };
 
-export function IvStructureVisual({ currentIv, percentile, termStructure }: {
+export function IvStructureVisual({ currentIv, percentile, termStructure, skew }: {
   currentIv: number | null;
   percentile: { percentile: number | null; sampleSize: number; label: string };
   termStructure: TermPoint[];
+  skew: IvSkewResult;
 }) {
+  const [view, setView] = useState<"TERM" | "SKEW">("TERM");
   const points = termStructure.slice(0, 8);
   const minIv = points.length ? Math.min(...points.map((point) => point.atmIv)) : 0;
   const maxIv = points.length ? Math.max(...points.map((point) => point.atmIv)) : 1;
@@ -61,13 +66,23 @@ export function IvStructureVisual({ currentIv, percentile, termStructure }: {
   const path = coordinates.map((point, index) => `${index ? "L" : "M"} ${point.x} ${point.y}`).join(" ");
   const percentilePosition = percentile.percentile ?? 50;
 
+  const skewValues = skew.points.flatMap((point) => [point.callIv, point.putIv]).filter((value): value is number => value !== null && Number.isFinite(value));
+  const skewMinimum = skewValues.length ? Math.min(...skewValues) : 0;
+  const skewMaximum = skewValues.length ? Math.max(...skewValues) : 1;
+  const skewSpan = Math.max(skewMaximum - skewMinimum, 0.05);
+  const skewX = (moneyness: number) => 7 + (moneyness - 0.8) / 0.4 * 86;
+  const skewY = (iv: number) => 84 - (iv - skewMinimum) / skewSpan * 66;
+  const skewPath = (side: "callIv" | "putIv") => skew.points
+    .filter((point) => point[side] !== null)
+    .map((point, index) => `${index ? "L" : "M"} ${skewX(point.moneyness)} ${skewY(point[side]!)}`).join(" ");
+
   return (
     <section className="visual-card iv-structure-visual" aria-labelledby="iv-structure-title">
       <div className="visual-card-heading">
-        <div><span>波动位置</span><strong id="iv-structure-title">IV 百分位＋期限结构</strong></div>
-        <small>当前 ATM IV {percent(currentIv)}</small>
+        <div><span>波动位置</span><strong id="iv-structure-title">{view === "TERM" ? "IV 百分位＋期限结构" : "IV 偏斜"}</strong></div>
+        <div className="iv-view-switch" aria-label="切换波动定价视图"><button type="button" className={view === "TERM" ? "active" : ""} onClick={() => setView("TERM")}>期限结构</button><button type="button" className={view === "SKEW" ? "active" : ""} onClick={() => setView("SKEW")}>IV偏斜</button></div>
       </div>
-      <div className="iv-insight-grid">
+      {view === "TERM" ? <><div className="iv-insight-grid">
         <div className="iv-percentile-card">
           <span>近期历史位置</span><strong>{percentile.percentile === null ? "样本积累中" : `${percentile.percentile}%`}</strong><b>{percentile.label}</b>
           <div className="iv-percentile-track" style={{ "--iv-position": `${percentilePosition}%` } as CSSProperties}><i /></div>
@@ -87,6 +102,16 @@ export function IvStructureVisual({ currentIv, percentile, termStructure }: {
       </div>
       <p><b>怎么读：</b>百分位回答“当前 IV 在已有历史中高不高”；期限结构回答“近期事件风险还是远期不确定性被定价得更高”。</p>
       <small>当前历史样本最多使用 60 个可用快照；样本较少时只做描述，不作长周期统计结论。</small>
+      </> : <div className="iv-skew-panel">
+        <div className="iv-skew-summary"><div><span>25Δ Put − 25Δ Call</span><strong>{skew.riskReversalVolPoints === null ? "—" : `${skew.riskReversalVolPoints >= 0 ? "+" : ""}${skew.riskReversalVolPoints.toFixed(1)} vol`}</strong><b>{skew.label}</b></div><small>{skew.expiration ? `${skew.expiration} · ${skew.daysToExpiration}天｜Put ${percent(skew.put25Iv)} · Call ${percent(skew.call25Iv)}` : "暂无定价到期日"}</small></div>
+        {skew.points.length >= 5 && skewValues.length ? <div className="iv-skew-chart"><div className="iv-skew-legend"><span><i className="call" />看涨 Call</span><span><i className="put" />看跌 Put</span><span>ATM IV {percent(currentIv)}</span></div><svg viewBox="0 0 100 100" role="img" aria-label={`IV偏斜曲线，${skew.label}`}>
+          {[0.8, 1, 1.2].map((mark) => <g key={mark}><line x1={skewX(mark)} x2={skewX(mark)} y1="15" y2="86" className={mark === 1 ? "atm-grid" : "skew-grid"} /><text x={skewX(mark)} y="97" textAnchor="middle">{Math.round(mark * 100)}%</text></g>)}
+          <path d={skewPath("callIv")} className="call" /><path d={skewPath("putIv")} className="put" />
+          {skew.points.map((point) => <g key={point.strike}>{point.callIv !== null && <circle cx={skewX(point.moneyness)} cy={skewY(point.callIv)} r="1.6" className="call" />}{point.putIv !== null && <circle cx={skewX(point.moneyness)} cy={skewY(point.putIv)} r="1.6" className="put" />}</g>)}
+        </svg><div className="iv-skew-axis">执行价 ÷ 现价</div></div> : <div className="sample-building"><strong>样本积累中</strong><span>{skew.reason}</span></div>}
+        <p><b>怎么读：</b>{skew.status === "AVAILABLE" ? `${skew.label}，说明两侧保护或追涨需求的相对定价存在差异。` : skew.reason}</p>
+        <small>偏斜反映相对定价与对冲需求，不预测价格方向；口径为接近30天的25Δ Put IV减25Δ Call IV。</small>
+      </div>}
     </section>
   );
 }

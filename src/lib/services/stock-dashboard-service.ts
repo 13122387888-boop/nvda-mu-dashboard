@@ -3,6 +3,7 @@ import { getPrisma } from "@/lib/db/prisma";
 import { unstable_cache } from "next/cache";
 import { calculateGammaExposureProxy } from "@/lib/indicators/options/gamma-exposure";
 import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics";
+import { calculateIvSkew } from "@/lib/indicators/options/iv-skew";
 import { addWallPersistence, buildOptionResearchHistory, calculateIvPercentile, calculateIvTermStructure, calculateOiChange, calculateWallProfile } from "@/lib/indicators/options/option-research";
 import { putCallOpenInterest } from "@/lib/indicators/options/put-call-ratio";
 import { movingAverageSeries } from "@/lib/indicators/moving-average";
@@ -271,7 +272,45 @@ function stockAttention(input: {
 async function loadStockCards() {
   const prisma = getPrisma();
   return Promise.all(SUPPORTED_SYMBOLS.map(async (symbol) => {
-    const metrics = await prisma.stockMetrics.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" } });
+    const [metrics, ivHistory] = await Promise.all([
+      prisma.stockMetrics.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" } }),
+      prisma.$queryRaw<Array<{ tradeDate: Date; atmIv: number }>>`
+        WITH recent_dates AS (
+          SELECT DISTINCT trade_date
+          FROM option_eod
+          WHERE symbol = ${symbol}
+          ORDER BY trade_date DESC
+          LIMIT 60
+        ), nearest_expiration AS (
+          SELECT options.trade_date, MIN(options.expiration) AS expiration
+          FROM option_eod options
+          JOIN recent_dates dates ON dates.trade_date = options.trade_date
+          WHERE options.symbol = ${symbol} AND options.expiration > options.trade_date
+          GROUP BY options.trade_date
+        ), closest_strike AS (
+          SELECT options.trade_date,
+            MIN(ABS(options.strike - COALESCE(stocks.adjusted_close, stocks.close))) AS distance
+          FROM option_eod options
+          JOIN nearest_expiration nearest ON nearest.trade_date = options.trade_date AND nearest.expiration = options.expiration
+          JOIN stock_daily stocks ON stocks.symbol = options.symbol AND stocks.trade_date = options.trade_date
+          WHERE options.symbol = ${symbol}
+            AND options.implied_volatility > 0
+            AND options.implied_volatility < 5
+          GROUP BY options.trade_date
+        )
+        SELECT options.trade_date AS "tradeDate", AVG(options.implied_volatility)::float8 AS "atmIv"
+        FROM option_eod options
+        JOIN nearest_expiration nearest ON nearest.trade_date = options.trade_date AND nearest.expiration = options.expiration
+        JOIN stock_daily stocks ON stocks.symbol = options.symbol AND stocks.trade_date = options.trade_date
+        JOIN closest_strike closest ON closest.trade_date = options.trade_date
+          AND ABS(options.strike - COALESCE(stocks.adjusted_close, stocks.close)) = closest.distance
+        WHERE options.symbol = ${symbol}
+          AND options.implied_volatility > 0
+          AND options.implied_volatility < 5
+        GROUP BY options.trade_date
+        ORDER BY options.trade_date ASC
+      `,
+    ]);
     if (!metrics) {
       return {
         symbol,
@@ -287,6 +326,7 @@ async function loadStockCards() {
         attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
         dayOverDay: null,
         relativeVolume: null,
+        ivPercentile: { percentile: null, sampleSize: 0, label: "样本积累中" },
         dataDate: null,
       };
     }
@@ -310,6 +350,11 @@ async function loadStockCards() {
       ma200: numberOrNull(metrics.ma200),
       rsi14: numberOrNull(metrics.rsi14),
     });
+    const ivRank = percentileRank(ivHistory.map((row) => Number(row.atmIv)), numberOrNull(metrics.atmIv), 8);
+    const ivPercentile = {
+      ...ivRank,
+      label: ivRank.percentile === null ? "样本积累中" : ivRank.percentile >= 70 ? "历史偏高" : ivRank.percentile <= 30 ? "历史偏低" : "历史中位",
+    };
     const [attention, dayOverDay] = await Promise.all([
       Promise.resolve(stockAttention({
       close,
@@ -346,12 +391,13 @@ async function loadStockCards() {
       attention,
       dayOverDay,
       relativeVolume: dayOverDay.relativeVolume.relativeVolume,
+      ivPercentile,
       dataDate: dateToYmd(metrics.tradeDate),
     };
   }));
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v6"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v7"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();
@@ -492,6 +538,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
     };
     const ivTermStructure = calculateIvTermStructure(optionRecords, close);
     const ivPercentile = calculateIvPercentile(optionResearchHistory.points, pricingMetrics.atmIv);
+    const ivSkew = calculateIvSkew(optionRecords, close);
 
     const dashboard = {
       symbol,
@@ -535,6 +582,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
         atmIv: pricingMetrics.atmIv,
         ivPercentile,
         ivTermStructure,
+        ivSkew,
         wallProfiles,
         gammaExposure,
       },
@@ -554,7 +602,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v6"],
+  ["stock-dashboard-bundle-v7"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

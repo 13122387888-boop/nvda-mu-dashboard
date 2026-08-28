@@ -2,7 +2,8 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
-import { DataScope, KeyDistanceMap, ResearchOverview, ScenarioObservation } from "@/components/decision-support";
+import { BeginnerObservationPath, DataScope, KeyDistanceMap, ResearchOverview, ScenarioObservation } from "@/components/decision-support";
+import { DataAlignmentNotice } from "@/components/data-alignment-notice";
 import { DayOverDayStrip } from "@/components/day-over-day-change";
 import { EventWindow } from "@/components/event-window";
 import { OptionOiChart } from "@/components/option-oi-chart";
@@ -10,6 +11,7 @@ import { OptionStructureHistory } from "@/components/option-structure-history";
 import { OptionWindowSelector } from "@/components/option-window-selector";
 import { IvStructureVisual, WallStrengthVisual } from "@/components/option-insight-visuals";
 import { PriceChart } from "@/components/price-chart";
+import { ReadingModeControl } from "@/components/reading-mode";
 import { ExpectedRangeVisual, GammaExposureVisual, MomentumInformation, MomentumVisual, PutCallVisual, TrendDeviation } from "@/components/indicator-visuals";
 import { MetricLabel, type MetricHelpKey } from "@/components/metric-help";
 import { ModuleJumpNav } from "@/components/module-jump-nav";
@@ -73,6 +75,8 @@ export default async function StockPage({ params, searchParams }: { params: Prom
 
   const change = dashboard.quote.dailyChangePct;
   const staleBusinessDays = businessDaysSince(dashboard.stockDate);
+  const decisionInput = { marketStatus: dashboard.quote.marketStatus, rsi14: dashboard.trend.rsi14, rv20: dashboard.trend.rv20, atmIv: dashboard.options.atmIv, gammaRegime: dashboard.options.gammaExposure.regime };
+  const keyLevels = { callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, maxPain: dashboard.options.maxPain, expectedUpper: dashboard.options.expectedUpper, expectedLower: dashboard.options.expectedLower };
   return (
     <main className="shell stock-detail">
       <Header />
@@ -81,20 +85,23 @@ export default async function StockPage({ params, searchParams }: { params: Prom
         <div className="quote-block"><strong>{money(dashboard.quote.close)}</strong><span className={change !== null && change >= 0 ? "positive" : "negative"}>{change === null ? "—" : `${change >= 0 ? "+" : ""}${percent(change, true)}`}</span><SnapshotLink symbol={symbol} window={dashboard.optionWindow} /></div>
       </section>
       {staleBusinessDays > 1 && <div className="stale-data-alert"><b>数据更新提醒</b><span>股票数据停留在 {dashboard.stockDate}，已间隔 {staleBusinessDays} 个工作日，请先确认数据是否完成同步。</span></div>}
+      <DataAlignmentNotice stockDate={dashboard.stockDate} optionsDate={dashboard.optionsSnapshotDate} />
+      <ReadingModeControl />
       <ResearchOverview
-        input={{ marketStatus: dashboard.quote.marketStatus, rsi14: dashboard.trend.rsi14, rv20: dashboard.trend.rv20, atmIv: dashboard.options.atmIv, gammaRegime: dashboard.options.gammaExposure.regime }}
+        input={decisionInput}
         close={dashboard.quote.close}
         trendScore={dashboard.trend.score}
         confidence={dashboard.trend.confidence}
         stockDate={dashboard.stockDate}
         relativeVolume={dashboard.trend.relativeVolume}
         ivPercentile={dashboard.options.ivPercentile}
-        levels={{ callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, maxPain: dashboard.options.maxPain, expectedUpper: dashboard.options.expectedUpper, expectedLower: dashboard.options.expectedLower }}
+        levels={keyLevels}
       />
-      <DayOverDayStrip change={dashboard.dayOverDay} currentStockDate={dashboard.stockDate} currentOptionsDate={dashboard.optionsDate} />
+      <BeginnerObservationPath input={decisionInput} close={dashboard.quote.close} trendScore={dashboard.trend.score} confidenceLabel={dashboard.trend.confidence.label} levels={keyLevels} ivPercentile={dashboard.options.ivPercentile} />
+      <DayOverDayStrip change={dashboard.dayOverDay} currentStockDate={dashboard.stockDate} currentOptionsDate={dashboard.optionsSnapshotDate} />
       <EventWindow symbol={symbol} assetType={dashboard.assetType} optionsExpiration={dashboard.optionsExpiration} />
       <ModuleJumpNav symbol={symbol} close={dashboard.quote.close} dailyChangePct={dashboard.quote.dailyChangePct} trendScore={dashboard.trend.score} confidenceLabel={dashboard.trend.confidence.label} optionWindowLabel={dashboard.optionWindowLabel} />
-      <DataScope stockDate={dashboard.stockDate} optionsDate={dashboard.optionsDate} expiration={dashboard.optionsExpiration} optionWindow={dashboard.optionWindowLabel} strikeCount={dashboard.optionOpenInterest.length} stockProviders={dashboard.stockProviders} />
+      <DataScope stockDate={dashboard.stockDate} optionsDate={dashboard.optionsSnapshotDate} expiration={dashboard.optionsExpiration} optionWindow={dashboard.optionWindowLabel} strikeCount={dashboard.optionOpenInterest.length} stockProviders={dashboard.stockProviders} />
 
       <section className="section-block" id="module-price"><ModuleHeading index="01" kicker="价格结构" title="价格趋势与关键位" description="价格处在什么趋势，离重要期权价位还有多远。" canAnswer="趋势位置与关键价位距离" cannotAnswer="突破后的必然涨跌方向" accent="var(--positive)" />
         <SectionPager label="价格趋势与关键位视图" accent="var(--positive)" tabs={[

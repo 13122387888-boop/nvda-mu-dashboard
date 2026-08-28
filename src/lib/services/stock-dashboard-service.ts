@@ -547,6 +547,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
       assetType: STOCKS[symbol].assetType,
       stockDate: dateToYmd(metrics.tradeDate),
       stockProviders: [...new Set(calculationHistory.map((row) => row.provider))].sort(),
+      optionsSnapshotDate: metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null,
       optionsDate: optionRows.length && metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null,
       optionsExpiration: pricingMetrics.optionsExpiration,
       optionWindow,
@@ -602,7 +603,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v7"],
+  ["stock-dashboard-bundle-v8"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

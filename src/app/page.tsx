@@ -15,6 +15,7 @@ export default async function Home() {
       close: null,
       dailyChangePct: null,
       trendScore: null,
+      relativeVolume: null,
       marketStatus: "INSUFFICIENT_DATA",
       gammaRegime: "UNAVAILABLE" as const,
       attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },

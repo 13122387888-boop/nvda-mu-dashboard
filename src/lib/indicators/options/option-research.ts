@@ -1,14 +1,41 @@
 import { calculateOptionMetrics } from "./option-metrics";
+import { atmIv } from "./atm-iv";
 import { realizedVolatility } from "../realized-volatility";
 import type { OptionContractRecord, StockDailyRecord } from "@/lib/providers/types";
 
-function wall(chain: OptionContractRecord[], side: "CALL" | "PUT", close: number) {
+export type WallProfile = {
+  strike: number | null;
+  openInterest: number;
+  totalOpenInterest: number;
+  share: number | null;
+  dominance: number | null;
+  strength: number | null;
+  persistenceSnapshots: number;
+};
+
+export function calculateWallProfile(chain: OptionContractRecord[], side: "CALL" | "PUT", close: number): WallProfile {
   const totals = new Map<number, number>();
   for (const row of chain) {
     if (row.optionType !== side || !row.openInterest) continue;
     totals.set(row.strike, (totals.get(row.strike) ?? 0) + row.openInterest);
   }
-  return [...totals.entries()].sort((a, b) => b[1] - a[1] || Math.abs(a[0] - close) - Math.abs(b[0] - close))[0]?.[0] ?? null;
+  const ranked = [...totals.entries()].sort((a, b) => b[1] - a[1] || Math.abs(a[0] - close) - Math.abs(b[0] - close));
+  const top = ranked[0];
+  if (!top) return { strike: null, openInterest: 0, totalOpenInterest: 0, share: null, dominance: null, strength: null, persistenceSnapshots: 0 };
+  const totalOpenInterest = ranked.reduce((sum, item) => sum + item[1], 0);
+  const share = totalOpenInterest > 0 ? top[1] / totalOpenInterest : null;
+  const dominance = ranked[1]?.[1] ? top[1] / ranked[1][1] : null;
+  const concentrationScore = share === null ? 0 : Math.min(100, share * 400);
+  const dominanceScore = dominance === null ? concentrationScore : Math.min(100, Math.max(0, (dominance - 1) * 125));
+  return {
+    strike: top[0],
+    openInterest: top[1],
+    totalOpenInterest,
+    share,
+    dominance,
+    strength: Math.round(concentrationScore * 0.7 + dominanceScore * 0.3),
+    persistenceSnapshots: 1,
+  };
 }
 
 function contractKey(row: OptionContractRecord) {
@@ -46,6 +73,8 @@ export type OptionHistoryPoint = {
   close: number;
   callWall: number | null;
   putWall: number | null;
+  callWallStrength: number | null;
+  putWallStrength: number | null;
   maxPain: number | null;
   atmIv: number | null;
   rv20: number | null;
@@ -80,11 +109,15 @@ export function buildOptionResearchHistory(
     const close = orderedStocks[stockIndex].close;
     const pricing = calculateOptionMetrics(snapshot.records, close);
     const closes = orderedStocks.slice(0, stockIndex + 1).map((row) => row.adjustedClose ?? row.close);
+    const callWall = calculateWallProfile(snapshot.records, "CALL", close);
+    const putWall = calculateWallProfile(snapshot.records, "PUT", close);
     const point: OptionHistoryPoint = {
       date: snapshot.tradeDate,
       close,
-      callWall: wall(snapshot.records, "CALL", close),
-      putWall: wall(snapshot.records, "PUT", close),
+      callWall: callWall.strike,
+      putWall: putWall.strike,
+      callWallStrength: callWall.strength,
+      putWallStrength: putWall.strength,
       maxPain: pricing.maxPain,
       atmIv: pricing.atmIv,
       rv20: realizedVolatility(closes, 20),
@@ -121,4 +154,39 @@ export function buildOptionResearchHistory(
       samples: validations.slice(-6).reverse(),
     },
   };
+}
+
+export function addWallPersistence(profile: WallProfile, points: OptionHistoryPoint[], key: "callWall" | "putWall") {
+  if (profile.strike === null) return profile;
+  let persistenceSnapshots = 0;
+  for (const point of [...points].reverse()) {
+    if (point[key] !== profile.strike) break;
+    persistenceSnapshots += 1;
+  }
+  return { ...profile, persistenceSnapshots: Math.max(persistenceSnapshots, 1) };
+}
+
+export function calculateIvTermStructure(chain: OptionContractRecord[], close: number) {
+  if (!chain.length) return [];
+  const tradeDate = [...chain].sort((a, b) => b.tradeDate.localeCompare(a.tradeDate))[0].tradeDate;
+  return [...new Set(chain.map((row) => row.expiration))]
+    .filter((expiration) => expiration > tradeDate)
+    .sort()
+    .map((expiration) => {
+      const contracts = chain.filter((row) => row.expiration === expiration);
+      return {
+        expiration,
+        daysToExpiration: Math.ceil((new Date(`${expiration}T00:00:00.000Z`).getTime() - new Date(`${tradeDate}T00:00:00.000Z`).getTime()) / 86_400_000),
+        atmIv: atmIv(contracts, close),
+        contractCount: contracts.length,
+      };
+    })
+    .filter((point): point is { expiration: string; daysToExpiration: number; atmIv: number; contractCount: number } => point.atmIv !== null);
+}
+
+export function calculateIvPercentile(points: OptionHistoryPoint[], currentIv: number | null, minimumSamples = 8) {
+  const samples = points.map((point) => point.atmIv).filter((value): value is number => value !== null && Number.isFinite(value)).slice(-60);
+  if (currentIv === null || samples.length < minimumSamples) return { percentile: null, sampleSize: samples.length, label: "样本积累中" };
+  const percentile = Math.round(samples.filter((value) => value <= currentIv).length / samples.length * 100);
+  return { percentile, sampleSize: samples.length, label: percentile >= 70 ? "历史偏高" : percentile <= 30 ? "历史偏低" : "历史中位" };
 }

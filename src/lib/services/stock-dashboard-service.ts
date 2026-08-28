@@ -3,11 +3,12 @@ import { getPrisma } from "@/lib/db/prisma";
 import { unstable_cache } from "next/cache";
 import { calculateGammaExposureProxy } from "@/lib/indicators/options/gamma-exposure";
 import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics";
-import { buildOptionResearchHistory, calculateOiChange } from "@/lib/indicators/options/option-research";
+import { addWallPersistence, buildOptionResearchHistory, calculateIvPercentile, calculateIvTermStructure, calculateOiChange, calculateWallProfile } from "@/lib/indicators/options/option-research";
 import { putCallOpenInterest } from "@/lib/indicators/options/put-call-ratio";
 import { movingAverageSeries } from "@/lib/indicators/moving-average";
 import { calculateStockMetrics, calculateTrendConfidence, calculateTrendScore } from "@/lib/indicators/stock-metrics";
 import { realizedVolatility } from "@/lib/indicators/realized-volatility";
+import { latestRelativeVolume, relativeVolumeSeries } from "@/lib/indicators/relative-volume";
 import { calculateVolumeProfile, type VolumeProfile } from "@/lib/indicators/volume-profile";
 import { wilderRsi } from "@/lib/indicators/rsi";
 import type { OptionContractRecord, SupportedSymbol } from "@/lib/providers/types";
@@ -138,6 +139,7 @@ async function loadDayOverDayChange(input: {
     provider: row.provider === "LONGBRIDGE" ? "LONGBRIDGE" as const : "ONCLICKMEDIA" as const,
   }));
   const previousStock = history.length > 1 ? calculateStockMetrics(history.slice(0, -1)) : null;
+  const relativeVolume = latestRelativeVolume(history.map((row) => row.volume));
 
   const currentOptionsDate = input.currentOptionsTradeDate;
   const previousOptionDateRow = currentOptionsDate
@@ -191,6 +193,7 @@ async function loadDayOverDayChange(input: {
     expectedUpperDistancePct: currentExpectedUpper === null || input.currentClose <= 0
       ? null
       : ((currentExpectedUpper - input.currentClose) / input.currentClose) * 100,
+    relativeVolume,
   };
 }
 
@@ -283,6 +286,7 @@ async function loadStockCards() {
         gammaRegime: "UNAVAILABLE" as const,
         attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
         dayOverDay: null,
+        relativeVolume: null,
         dataDate: null,
       };
     }
@@ -341,12 +345,13 @@ async function loadStockCards() {
       gammaRegime,
       attention,
       dayOverDay,
+      relativeVolume: dayOverDay.relativeVolume.relativeVolume,
       dataDate: dateToYmd(metrics.tradeDate),
     };
   }));
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v5"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v6"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();
@@ -389,6 +394,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
   const ma20 = movingAverageSeries(closes, 20);
   const ma50 = movingAverageSeries(closes, 50);
   const ma200 = movingAverageSeries(closes, 200);
+  const volumeSeries = relativeVolumeSeries(calculationHistory.map((row) => row.volume === null ? null : Number(row.volume)));
   const close = Number(metrics.close);
   const currentRsi14 = numberOrNull(metrics.rsi14);
   const currentRv20 = numberOrNull(metrics.rv20);
@@ -423,6 +429,9 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
     ma20: ma20[index],
     ma50: ma50[index],
     ma200: ma200[index],
+    volume: volumeSeries[index].volume,
+    volumeAverage20: volumeSeries[index].averageVolume,
+    relativeVolume: volumeSeries[index].relativeVolume,
   })).filter((point) => point.date >= chartStartDate);
   const stockResearchHistory = calculationHistory.map((row) => ({
     symbol,
@@ -477,6 +486,12 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
         ? snapshot.records
         : snapshot.records.filter((row) => Math.ceil((new Date(`${row.expiration}T00:00:00.000Z`).getTime() - new Date(`${snapshot.tradeDate}T00:00:00.000Z`).getTime()) / 86_400_000) <= optionWindowLimit),
     })), stockResearchHistory);
+    const wallProfiles = {
+      call: addWallPersistence(calculateWallProfile(optionRecords, "CALL", close), optionResearchHistory.points, "callWall"),
+      put: addWallPersistence(calculateWallProfile(optionRecords, "PUT", close), optionResearchHistory.points, "putWall"),
+    };
+    const ivTermStructure = calculateIvTermStructure(optionRecords, close);
+    const ivPercentile = calculateIvPercentile(optionResearchHistory.points, pricingMetrics.atmIv);
 
     const dashboard = {
       symbol,
@@ -502,6 +517,8 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
         ma200: currentMa200,
         rsi14: currentRsi14,
         rv20: currentRv20,
+        relativeVolume: volumeSeries.at(-1)?.relativeVolume ?? null,
+        averageVolume20: volumeSeries.at(-1)?.averageVolume ?? null,
         score: trendScore,
         confidence: trendConfidence,
         historyCount: calculationHistory.length,
@@ -516,6 +533,9 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
         callWall: aggregateOptionWall(optionRecords, "CALL", close),
         putWall: aggregateOptionWall(optionRecords, "PUT", close),
         atmIv: pricingMetrics.atmIv,
+        ivPercentile,
+        ivTermStructure,
+        wallProfiles,
         gammaExposure,
       },
       historicalPositions,
@@ -534,7 +554,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v5"],
+  ["stock-dashboard-bundle-v6"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

@@ -1,10 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CandlestickSeries, ColorType, createChart, LineSeries, LineStyle, type Time } from "lightweight-charts";
+import { CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, LineStyle, type Time } from "lightweight-charts";
 
-type Point = { date: string; open: number; high: number; low: number; close: number; ma20: number | null; ma50: number | null; ma200: number | null };
-type PriceLevels = { maxPain: number | null; callWall: number | null; putWall: number | null; expectedUpper: number | null; expectedLower: number | null };
+type Point = { date: string; open: number; high: number; low: number; close: number; ma20: number | null; ma50: number | null; ma200: number | null; volume: number | null; volumeAverage20: number | null; relativeVolume: number | null };
+type WallLevel = { strike: number | null; strength: number | null; persistenceSnapshots: number };
+type PriceLevels = { maxPain: number | null; callWall: WallLevel; putWall: WallLevel; expectedUpper: number | null; expectedLower: number | null };
+
+function compactVolume(value: number | null) {
+  if (value === null) return "—";
+  return new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 }).format(value);
+}
 
 function chartTimeKey(time: Time | undefined) {
   if (time === undefined) return null;
@@ -17,15 +23,16 @@ export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevel
   const container = useRef<HTMLDivElement>(null);
   const [showAverages, setShowAverages] = useState(true);
   const [showOptionLevels, setShowOptionLevels] = useState(true);
+  const [showVolume, setShowVolume] = useState(true);
   const [activePoint, setActivePoint] = useState<Point | null>(data.at(-1) ?? null);
   const dataByDate = useMemo(() => new Map(data.map((point) => [point.date, point])), [data]);
 
   useEffect(() => {
     if (!container.current || !data.length) return;
-    const rightWhitespaceBars = Math.max(18, Math.ceil(data.length / 3));
+    const rightWhitespaceBars = Math.max(15, Math.ceil(data.length / 4));
     const chart = createChart(container.current, {
       autoSize: true,
-      height: container.current.clientWidth < 640 ? 300 : 410,
+      height: container.current.clientWidth < 640 ? 280 : 360,
       layout: { background: { type: ColorType.Solid, color: "#10151d" }, textColor: "#8994a4" },
       grid: { vertLines: { color: "#1b222d" }, horzLines: { color: "#1b222d" } },
       rightPriceScale: { borderColor: "#252d39", scaleMargins: { top: 0.08, bottom: 0.08 } },
@@ -38,6 +45,21 @@ export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevel
       upColor: "#57d68d", downColor: "#f06f78", wickUpColor: "#57d68d", wickDownColor: "#f06f78", borderVisible: false, priceLineVisible: false,
     });
     candles.setData(data.map((point) => ({ time: point.date as Time, open: point.open, high: point.high, low: point.low, close: point.close })));
+    candles.priceScale().applyOptions({ scaleMargins: { top: 0.06, bottom: showVolume ? 0.27 : 0.08 } });
+
+    if (showVolume) {
+      const volume = chart.addSeries(HistogramSeries, {
+        priceFormat: { type: "volume" }, priceScaleId: "volume", priceLineVisible: false, lastValueVisible: false,
+      });
+      volume.priceScale().applyOptions({ scaleMargins: { top: 0.78, bottom: 0 } });
+      volume.setData(data.filter((point) => point.volume !== null).map((point) => ({
+        time: point.date as Time,
+        value: point.volume!,
+        color: point.close >= point.open ? "rgba(87,214,141,.48)" : "rgba(240,111,120,.48)",
+      })));
+      const averageVolume = chart.addSeries(LineSeries, { color: "#9da7b5", lineWidth: 1, priceScaleId: "volume", priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false });
+      averageVolume.setData(data.filter((point) => point.volumeAverage20 !== null).map((point) => ({ time: point.date as Time, value: point.volumeAverage20! })));
+    }
 
     const series = [
       { key: "ma20" as const, color: "#57d68d", width: 2 as const },
@@ -51,16 +73,16 @@ export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevel
       }
     }
     const priceLines = [
-      { price: levels.callWall, color: "#4f8cff", title: "看涨墙", style: LineStyle.Solid },
-      { price: levels.putWall, color: "#f0b45c", title: "看跌墙", style: LineStyle.Solid },
-      { price: levels.maxPain, color: "#f3f6fa", title: "最大痛点", style: LineStyle.Dashed },
-      { price: levels.expectedUpper, color: "#57d68d", title: "预期上沿", style: LineStyle.Dotted },
-      { price: levels.expectedLower, color: "#57d68d", title: "预期下沿", style: LineStyle.Dotted },
+      { price: levels.callWall.strike, color: "#4f8cff", title: `看涨墙 ${levels.callWall.strength ?? "—"}分·${levels.callWall.persistenceSnapshots}次`, style: levels.callWall.persistenceSnapshots >= 2 ? LineStyle.Solid : LineStyle.Dashed, width: Math.min(4, Math.max(1, Math.ceil((levels.callWall.strength ?? 25) / 25))) as 1 | 2 | 3 | 4 },
+      { price: levels.putWall.strike, color: "#f0b45c", title: `看跌墙 ${levels.putWall.strength ?? "—"}分·${levels.putWall.persistenceSnapshots}次`, style: levels.putWall.persistenceSnapshots >= 2 ? LineStyle.Solid : LineStyle.Dashed, width: Math.min(4, Math.max(1, Math.ceil((levels.putWall.strength ?? 25) / 25))) as 1 | 2 | 3 | 4 },
+      { price: levels.maxPain, color: "#f3f6fa", title: "最大痛点", style: LineStyle.Dashed, width: 1 as const },
+      { price: levels.expectedUpper, color: "#57d68d", title: "预期上沿", style: LineStyle.Dotted, width: 1 as const },
+      { price: levels.expectedLower, color: "#57d68d", title: "预期下沿", style: LineStyle.Dotted, width: 1 as const },
     ];
     if (showOptionLevels) {
       for (const level of priceLines) {
         if (level.price === null || !Number.isFinite(level.price)) continue;
-        candles.createPriceLine({ price: level.price, color: level.color, lineWidth: 1, lineStyle: level.style, axisLabelVisible: true, title: level.title });
+        candles.createPriceLine({ price: level.price, color: level.color, lineWidth: level.width, lineStyle: level.style, axisLabelVisible: true, title: level.title });
       }
     }
     chart.timeScale().fitContent();
@@ -74,7 +96,7 @@ export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevel
       if (key) setActivePoint(dataByDate.get(key) ?? data.at(-1) ?? null);
     });
     return () => chart.remove();
-  }, [data, dataByDate, levels, showAverages, showOptionLevels]);
+  }, [data, dataByDate, levels, showAverages, showOptionLevels, showVolume]);
 
   if (!data.length) return <div className="chart-empty">暂无价格历史数据</div>;
   return (
@@ -82,11 +104,12 @@ export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevel
       <div className="chart-layer-controls" aria-label="K线图层开关">
         <button type="button" aria-pressed={showAverages} className={showAverages ? "active" : ""} onClick={() => setShowAverages((value) => !value)}><i className="averages" />均线</button>
         <button type="button" aria-pressed={showOptionLevels} className={showOptionLevels ? "active" : ""} onClick={() => setShowOptionLevels((value) => !value)}><i className="levels" />期权关键位</button>
+        <button type="button" aria-pressed={showVolume} className={showVolume ? "active" : ""} onClick={() => setShowVolume((value) => !value)}><i className="volume" />成交量</button>
       </div>
       {activePoint && <div className="price-point-readout" aria-live="polite">
         <b>{activePoint.date}</b>
         <span>开 {activePoint.open.toFixed(2)}</span><span>高 {activePoint.high.toFixed(2)}</span><span>低 {activePoint.low.toFixed(2)}</span><span>收 {activePoint.close.toFixed(2)}</span>
-        <small>MA20 {activePoint.ma20?.toFixed(2) ?? "—"} · MA50 {activePoint.ma50?.toFixed(2) ?? "—"} · MA200 {activePoint.ma200?.toFixed(2) ?? "—"}</small>
+        <small>MA20 {activePoint.ma20?.toFixed(2) ?? "—"} · MA50 {activePoint.ma50?.toFixed(2) ?? "—"} · MA200 {activePoint.ma200?.toFixed(2) ?? "—"} · 量 {compactVolume(activePoint.volume)} · RVOL {activePoint.relativeVolume?.toFixed(2) ?? "—"}×</small>
       </div>}
       <div ref={container} className="price-chart" aria-label="近六个月日K、移动平均线与期权关键价位图，点按可读取精确数值" />
     </div>

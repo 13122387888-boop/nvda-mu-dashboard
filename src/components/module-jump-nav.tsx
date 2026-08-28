@@ -63,7 +63,7 @@ export function ModuleJumpNav({
           <span>{money(close)}</span>
           <span className={dailyChangePct === null ? "" : dailyChangePct >= 0 ? "positive" : "negative"}>{dailyChangePct === null ? "—" : `${dailyChangePct >= 0 ? "+" : ""}${percent(dailyChangePct, true)}`}</span>
           <span>趋势 <b>{trendScore ?? "—"}</b></span>
-          <span className="context-confidence">可信度 {confidenceLabel}</span>
+          <span className="context-confidence">数据完整度 {confidenceLabel}</span>
           <span className="context-window">{optionWindowLabel}</span>
         </div>
         <nav className="module-jump-nav" aria-label="研究模块快速导航">{moduleButtons()}</nav>

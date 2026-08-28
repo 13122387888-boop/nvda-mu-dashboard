@@ -1,5 +1,5 @@
 import { addDays, isYmd } from "@/lib/dates";
-import type { OptionContractRecord, StockDailyRecord, SupportedSymbol } from "../types";
+import type { IntradayBarRecord, OptionContractRecord, StockDailyRecord, SupportedSymbol } from "../types";
 import { optionContractSchema, stockBarSchema, warningSchema } from "./onclickmedia-schemas";
 
 function finiteNumber(value: unknown): number | null {
@@ -52,6 +52,33 @@ export function mapStockBars(raw: unknown, symbol: SupportedSymbol) {
       volume: nonNegativeInteger(parsed.data.volume),
       provider: "ONCLICKMEDIA",
     });
+  });
+
+  return { records, warnings };
+}
+
+export function mapIntradayBars(raw: unknown) {
+  const records: IntradayBarRecord[] = [];
+  const warnings: string[] = [];
+  if (!Array.isArray(raw)) return { records, warnings: ["Intraday response was not an array"] };
+
+  raw.forEach((item, index) => {
+    const parsed = stockBarSchema.safeParse(item);
+    if (!parsed.success) {
+      warnings.push(`Skipped invalid intraday row ${index}`);
+      return;
+    }
+    const tradeDate = parsed.data.timestamp.slice(0, 10);
+    const open = finiteNumber(parsed.data.open);
+    const high = finiteNumber(parsed.data.high);
+    const low = finiteNumber(parsed.data.low);
+    const close = finiteNumber(parsed.data.close);
+    const volume = nonNegativeInteger(parsed.data.volume);
+    if (!isYmd(tradeDate) || open === null || high === null || low === null || close === null || volume === null) {
+      warnings.push(`Skipped invalid intraday row ${index}`);
+      return;
+    }
+    records.push({ timestamp: parsed.data.timestamp, tradeDate, open, high, low, close, volume });
   });
 
   return { records, warnings };

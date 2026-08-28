@@ -18,6 +18,7 @@
     "sync:bootstrap": "tsx scripts/sync.ts bootstrap",
     "sync:data": "tsx scripts/sync.ts incremental",
     "backfill:longbridge": "tsx scripts/backfill-longbridge.ts",
+    "backfill:option-research": "tsx scripts/backfill-option-research.ts",
     "audit:data": "tsx scripts/audit-data.ts",
     "postinstall": "prisma generate"
   },

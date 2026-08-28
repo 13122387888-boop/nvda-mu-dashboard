@@ -15,6 +15,16 @@ export interface StockDailyRecord {
   provider: "ONCLICKMEDIA" | "LONGBRIDGE";
 }
 
+export interface IntradayBarRecord {
+  timestamp: string;
+  tradeDate: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume: number;
+}
+
 export interface OptionContractRecord {
   symbol: SupportedSymbol;
   tradeDate: string;

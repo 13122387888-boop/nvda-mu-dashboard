@@ -2,7 +2,7 @@ import { addDays, isYmd, todayYmd } from "@/lib/dates";
 import type { MarketDataProvider } from "../market-data-provider";
 import type { SupportedSymbol } from "../types";
 import { OnclickMediaClient, OnclickMediaError } from "./onclickmedia-client";
-import { mapOptionChain, mapStockBars } from "./onclickmedia-mappers";
+import { mapIntradayBars, mapOptionChain, mapStockBars } from "./onclickmedia-mappers";
 import { dateListSchema } from "./onclickmedia-schemas";
 
 function sortedDates(raw: unknown, symbol?: string): string[] {
@@ -59,6 +59,23 @@ export class OnclickMediaProvider implements MarketDataProvider {
 
     const byDate = new Map(records.map((record) => [record.tradeDate, record]));
     return { records: [...byDate.values()].sort((a, b) => a.tradeDate.localeCompare(b.tradeDate)), warnings };
+  }
+
+  async getStockIntradayHistory({ symbol, startDate, endDate }: { symbol: SupportedSymbol; startDate: string; endDate: string }) {
+    const raw = await this.client.get("/stock-data/v2/adj/", {
+      ticker: symbol,
+      from: startDate,
+      to: addDays(endDate, 1),
+      extended: "false",
+      bar_size: "1m",
+      data: "ohlcv",
+      output: "json",
+    });
+    return mapIntradayBars(raw);
+  }
+
+  async getAvailableOptionDates(symbol: SupportedSymbol) {
+    return sortedDates(await this.client.get("/options/", { ticker: symbol, list: "date" }), symbol);
   }
 
   async getLatestOptionChain({ symbol, tradeDate }: { symbol: SupportedSymbol; tradeDate?: string }) {

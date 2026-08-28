@@ -5,6 +5,7 @@ import { connection } from "next/server";
 import { DataScope, KeyDistanceMap, ResearchOverview, ScenarioObservation } from "@/components/decision-support";
 import { DayOverDayStrip } from "@/components/day-over-day-change";
 import { OptionOiChart } from "@/components/option-oi-chart";
+import { OptionStructureHistory } from "@/components/option-structure-history";
 import { OptionWindowSelector } from "@/components/option-window-selector";
 import { PriceChart } from "@/components/price-chart";
 import { ExpectedRangeVisual, GammaExposureVisual, MomentumInformation, MomentumVisual, PutCallVisual, TrendDeviation } from "@/components/indicator-visuals";
@@ -13,6 +14,7 @@ import { ModuleJumpNav } from "@/components/module-jump-nav";
 import { HistoricalPosition, SnapshotLink } from "@/components/product-insights";
 import { SectionPager } from "@/components/section-pager";
 import { Footer, Header } from "@/components/site-chrome";
+import { VolumeProfileVisual } from "@/components/volume-profile-visual";
 import { money, percent } from "@/lib/format";
 import { getStockDashboard, isSupportedSymbol, STOCKS } from "@/lib/services/stock-dashboard-service";
 
@@ -103,6 +105,7 @@ export default async function StockPage({ params, searchParams }: { params: Prom
           { id: "momentum-overview", label: "动量概览", content: <MomentumVisual rsi={dashboard.trend.rsi14} realizedVolatility={dashboard.trend.rv20} /> },
           { id: "momentum-pricing", label: "波动定价", content: <MomentumInformation rsi={dashboard.trend.rsi14} realizedVolatility={dashboard.trend.rv20} atmIv={dashboard.options.atmIv} /> },
           { id: "momentum-history", label: "历史位置", content: <HistoricalPosition positions={dashboard.historicalPositions} /> },
+          { id: "momentum-volume-profile", label: "成交分布", content: <VolumeProfileVisual profile={dashboard.volumeProfile} close={dashboard.quote.close} /> },
         ]} />
       </section>
 
@@ -116,7 +119,8 @@ export default async function StockPage({ params, searchParams }: { params: Prom
           <SectionPager label="期权持仓结构视图" accent="var(--warning)" tabs={[
             { id: "options-range", label: "预期区间", content: <div className="options-visual-grid"><ExpectedRangeVisual close={dashboard.quote.close} lower={dashboard.options.expectedLower} upper={dashboard.options.expectedUpper} expectedMove={dashboard.options.expectedMove} expectedMovePct={dashboard.options.expectedMovePct} maxPain={dashboard.options.maxPain} callWall={dashboard.options.callWall} putWall={dashboard.options.putWall} /><PutCallVisual ratio={dashboard.options.putCallOi} atmIv={dashboard.options.atmIv} /></div> },
             { id: "options-gamma", label: "Gamma", content: <GammaExposureVisual {...dashboard.options.gammaExposure} /> },
-            { id: "options-oi", label: "未平仓量", content: <><div className="metric-grid options compact"><MetricCard label="最大痛点" value={money(dashboard.options.maxPain)} help="maxPain" /><MetricCard label="看涨墙" value={money(dashboard.options.callWall)} help="callWall" /><MetricCard label="看跌墙" value={money(dashboard.options.putWall)} help="putWall" /><MetricCard label="平值隐含波动率" value={percent(dashboard.options.atmIv)} help="atmIv" /></div><div className="chart-panel oi-panel"><div className="chart-title"><div><h3><MetricLabel metric="openInterest">按行权价分布的未平仓量</MetricLabel></h3><small>同一价格轴 · 看涨（Call）向上 / 看跌（Put）向下</small></div><span><i className="call" />看涨（Call） <i className="put" />看跌（Put）</span></div><OptionOiChart data={dashboard.optionOpenInterest} /></div></> },
+            { id: "options-oi", label: "未平仓量", content: <><div className="metric-grid options compact"><MetricCard label="最大痛点" value={money(dashboard.options.maxPain)} help="maxPain" /><MetricCard label="看涨墙" value={money(dashboard.options.callWall)} help="callWall" /><MetricCard label="看跌墙" value={money(dashboard.options.putWall)} help="putWall" /><MetricCard label="平值隐含波动率" value={percent(dashboard.options.atmIv)} help="atmIv" /></div><div className="chart-panel oi-panel"><div className="chart-title"><div><h3><MetricLabel metric="openInterest">按行权价分布的未平仓量</MetricLabel></h3><small>同一价格轴 · 看涨（Call）向上 / 看跌（Put）向下</small></div><span><i className="call" />看涨（Call） <i className="put" />看跌（Put）</span></div><OptionOiChart data={dashboard.optionOpenInterest} change={dashboard.optionOpenInterestChange} /></div></> },
+            { id: "options-history", label: "结构演变", content: <OptionStructureHistory history={dashboard.optionResearchHistory} /> },
           ]} />
         </>}
       </section>

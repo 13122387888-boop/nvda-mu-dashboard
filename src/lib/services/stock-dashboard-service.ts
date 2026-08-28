@@ -3,12 +3,15 @@ import { getPrisma } from "@/lib/db/prisma";
 import { unstable_cache } from "next/cache";
 import { calculateGammaExposureProxy } from "@/lib/indicators/options/gamma-exposure";
 import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics";
+import { buildOptionResearchHistory, calculateOiChange } from "@/lib/indicators/options/option-research";
 import { putCallOpenInterest } from "@/lib/indicators/options/put-call-ratio";
 import { movingAverageSeries } from "@/lib/indicators/moving-average";
 import { calculateStockMetrics, calculateTrendConfidence, calculateTrendScore } from "@/lib/indicators/stock-metrics";
 import { realizedVolatility } from "@/lib/indicators/realized-volatility";
+import { calculateVolumeProfile, type VolumeProfile } from "@/lib/indicators/volume-profile";
 import { wilderRsi } from "@/lib/indicators/rsi";
 import type { OptionContractRecord, SupportedSymbol } from "@/lib/providers/types";
+import { OnclickMediaProvider } from "@/lib/providers/onclickmedia/onclickmedia-provider";
 import { STOCKS, SUPPORTED_SYMBOLS } from "@/lib/stocks";
 
 export { isSupportedSymbol, STOCKS, SUPPORTED_SYMBOLS } from "@/lib/stocks";
@@ -30,6 +33,23 @@ const OPTION_WINDOW_LABELS: Record<OptionWindow, string> = {
 };
 
 const numberOrNull = (value: { toString(): string } | null) => value === null ? null : Number(value);
+
+const EMPTY_VOLUME_PROFILE: VolumeProfile = {
+  status: "UNAVAILABLE", bins: [], pointOfControl: null, valueAreaHigh: null, valueAreaLow: null,
+  sampleStart: null, sampleEnd: null, sessionCount: 0, barCount: 0, barSize: "1分钟",
+};
+
+async function loadVolumeProfile(symbol: SupportedSymbol, endDate: string) {
+  try {
+    const provider = new OnclickMediaProvider();
+    const result = await provider.getStockIntradayHistory({ symbol, startDate: addDays(endDate, -35), endDate });
+    return calculateVolumeProfile(result.records);
+  } catch {
+    return EMPTY_VOLUME_PROFILE;
+  }
+}
+
+const getCachedVolumeProfile = unstable_cache(loadVolumeProfile, ["volume-profile-v1"], { revalidate: 21_600 });
 
 type OptionDatabaseRow = {
   symbol: string;
@@ -339,7 +359,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
   const chartStartDate = addDays(dateToYmd(metrics.tradeDate), -190);
   const calculationStartDate = addDays(dateToYmd(metrics.tradeDate), -450);
-  const [calculationHistory, allOptionRows] = await Promise.all([
+  const [calculationHistory, allOptionRows, optionDateGroups, volumeProfile] = await Promise.all([
     prisma.stockDaily.findMany({
       where: { symbol, tradeDate: { gte: new Date(`${calculationStartDate}T00:00:00.000Z`) } },
       orderBy: { tradeDate: "asc" },
@@ -350,7 +370,21 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
           orderBy: [{ expiration: "asc" }, { strike: "asc" }],
         })
       : Promise.resolve([]),
+    prisma.optionEod.groupBy({
+      by: ["tradeDate"],
+      where: { symbol },
+      orderBy: { tradeDate: "desc" },
+      take: 16,
+    }),
+    getCachedVolumeProfile(symbol, dateToYmd(metrics.tradeDate)),
   ]);
+  const optionHistoryDates = optionDateGroups.map((row) => row.tradeDate);
+  const optionHistoryRows = optionHistoryDates.length
+    ? await prisma.optionEod.findMany({
+        where: { symbol, tradeDate: { in: optionHistoryDates } },
+        orderBy: [{ tradeDate: "asc" }, { expiration: "asc" }, { strike: "asc" }],
+      })
+    : [];
   const closes = calculationHistory.map((row) => Number(row.adjustedClose ?? row.close));
   const ma20 = movingAverageSeries(closes, 20);
   const ma50 = movingAverageSeries(closes, 50);
@@ -390,6 +424,23 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
     ma50: ma50[index],
     ma200: ma200[index],
   })).filter((point) => point.date >= chartStartDate);
+  const stockResearchHistory = calculationHistory.map((row) => ({
+    symbol,
+    tradeDate: dateToYmd(row.tradeDate),
+    open: Number(row.open),
+    high: Number(row.high),
+    low: Number(row.low),
+    close: Number(row.close),
+    adjustedClose: numberOrNull(row.adjustedClose),
+    volume: row.volume === null ? null : Number(row.volume),
+    provider: row.provider === "LONGBRIDGE" ? "LONGBRIDGE" as const : "ONCLICKMEDIA" as const,
+  }));
+  const optionSnapshots = optionHistoryDates
+    .map((tradeDate) => ({
+      tradeDate: dateToYmd(tradeDate),
+      records: optionHistoryRows.filter((row) => row.tradeDate.getTime() === tradeDate.getTime()).map(toOptionRecord),
+    }))
+    .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
 
   const dashboards = optionWindows.map((optionWindow) => {
     const optionWindowLimit = OPTION_WINDOW_LIMITS[optionWindow];
@@ -397,6 +448,11 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
       ? allOptionRows
       : allOptionRows.filter((row) => remainingDays(metrics.optionsTradeDate!, row.expiration) <= optionWindowLimit);
     const optionRecords = optionRows.map(toOptionRecord);
+    const previousSnapshot = optionSnapshots.filter((snapshot) => snapshot.tradeDate < (metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : "")).at(-1);
+    const previousOptionRecords = (previousSnapshot?.records ?? []).filter((row) => {
+      if (optionWindowLimit === null || !previousSnapshot) return true;
+      return Math.ceil((new Date(`${row.expiration}T00:00:00.000Z`).getTime() - new Date(`${previousSnapshot.tradeDate}T00:00:00.000Z`).getTime()) / 86_400_000) <= optionWindowLimit;
+    });
     const pricingMetrics = calculateOptionMetrics(optionRecords, close);
     const gammaExposure = calculateGammaExposureProxy(optionRows.map((row) => ({
       optionType: row.optionType,
@@ -414,6 +470,13 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
       else point.putOi += value;
       oi.set(strike, point);
     }
+    const oiChange = calculateOiChange(optionRecords, previousOptionRecords, close);
+    const optionResearchHistory = buildOptionResearchHistory(optionSnapshots.map((snapshot) => ({
+      tradeDate: snapshot.tradeDate,
+      records: optionWindowLimit === null
+        ? snapshot.records
+        : snapshot.records.filter((row) => Math.ceil((new Date(`${row.expiration}T00:00:00.000Z`).getTime() - new Date(`${snapshot.tradeDate}T00:00:00.000Z`).getTime()) / 86_400_000) <= optionWindowLimit),
+    })), stockResearchHistory);
 
     const dashboard = {
       symbol,
@@ -456,9 +519,12 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
         gammaExposure,
       },
       historicalPositions,
+      volumeProfile,
+      optionResearchHistory,
       dayOverDay,
       priceHistory,
-      optionOpenInterest: [...oi.values()],
+      optionOpenInterest: [...oi.values()].sort((a, b) => a.strike - b.strike),
+      optionOpenInterestChange: oiChange,
     };
     return [optionWindow, dashboard] as const;
   });
@@ -468,7 +534,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v4"],
+  ["stock-dashboard-bundle-v5"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

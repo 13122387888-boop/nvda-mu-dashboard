@@ -15,6 +15,7 @@ type ScanCard = {
   close: number | null;
   dailyChangePct: number | null;
   trendScore: number | null;
+  relativeVolume: number | null;
   marketStatus: string;
   gammaRegime: "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
   attention: { label: string; detail: string; score: number; tone: "positive" | "negative" | "warning" | "neutral" };
@@ -84,9 +85,9 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
           >
             <div className="scanner-stock"><b>{stock.symbol}</b><span>{stock.shortName}</span></div>
             <div className="scanner-price"><b>{money(stock.close)}</b><span className={stock.dailyChangePct !== null && stock.dailyChangePct >= 0 ? "positive" : "negative"}>{stock.dailyChangePct === null ? "等待同步" : `${stock.dailyChangePct >= 0 ? "+" : ""}${percent(stock.dailyChangePct, true)}`}</span></div>
-            <div className="scanner-signal"><small>趋势分</small><strong>{stock.trendScore ?? "—"}</strong><b><i className={`status-dot ${trend.tone}`} />{trend.label}</b></div>
+            <div className="scanner-signal"><small>趋势分</small><strong>{stock.trendScore ?? "—"}</strong><b><i className={`status-dot ${trend.tone}`} />{trend.label}</b>{stock.relativeVolume !== null && <em>量能 {stock.relativeVolume.toFixed(1)}×</em>}</div>
             <div className={`scanner-gamma ${stock.gammaRegime.toLowerCase()}`}><small>期权结构</small><b>{gammaLabels[stock.gammaRegime]}</b></div>
-            <div className="scanner-change"><small>较昨日变化</small><div className="scanner-change-chips"><DayOverDayChips change={stock.dayOverDay} /></div><span>{stock.attention.label}</span></div>
+            <div className="scanner-change"><small>较昨日变化</small><div className="scanner-change-chips"><DayOverDayChips change={stock.dayOverDay} compact /></div><span>{stock.attention.label}</span></div>
             <time dateTime={stock.dataDate ?? undefined}>{stock.dataDate ?? "—"}</time>
             <i className="scanner-arrow" aria-hidden="true">→</i>
           </Link>

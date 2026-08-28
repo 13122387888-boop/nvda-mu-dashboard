@@ -9,6 +9,7 @@ export type DayOverDayChange = {
   gamma: { previous: GammaRegime; current: GammaRegime };
   callWall: { previous: number | null; current: number | null; delta: number | null };
   expectedUpperDistancePct: number | null;
+  relativeVolume?: { averageVolume: number | null; relativeVolume: number | null };
 };
 
 const gammaShort = {
@@ -57,8 +58,8 @@ export function dayOverDayItems(change: DayOverDayChange | null) {
   ];
 }
 
-export function DayOverDayChips({ change }: { change: DayOverDayChange | null }) {
-  const items = dayOverDayItems(change);
+export function DayOverDayChips({ change, compact = false }: { change: DayOverDayChange | null; compact?: boolean }) {
+  const items = dayOverDayItems(change).filter((item) => !compact || !item.label.includes("暂无") && !item.label.includes("未变"));
   if (!items.length) return <span className="day-change-empty">暂无上一交易日可比数据</span>;
   return <>{items.map((item) => <span className={`day-change-chip ${item.tone}`} key={item.label}>{item.label}</span>)}</>;
 }

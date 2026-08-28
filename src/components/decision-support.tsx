@@ -46,6 +46,8 @@ export function ResearchOverview({
   confidence,
   stockDate,
   levels,
+  relativeVolume,
+  ivPercentile,
 }: {
   input: DecisionSupportInput;
   close: number;
@@ -53,6 +55,8 @@ export function ResearchOverview({
   confidence: { level: "HIGH" | "MEDIUM" | "LOW"; label: string; reason: string };
   stockDate: string;
   levels: { callWall: number | null; putWall: number | null; maxPain: number | null; expectedUpper: number | null; expectedLower: number | null };
+  relativeVolume: number | null;
+  ivPercentile: { percentile: number | null; label: string };
 }) {
   const brief = buildResearchBrief(input);
   const nearest = [
@@ -67,20 +71,23 @@ export function ResearchOverview({
   const nearestPosition = !nearest ? "暂无可用期权关键位" : Math.abs(nearest.delta) < 0.0005
     ? "与现价基本重合"
     : `${nearest.delta > 0 ? "现价上方" : "现价下方"} ${percent(Math.abs(nearest.delta))}`;
+  const gammaLabel = input.gammaRegime === "POSITIVE" ? "正 Gamma" : input.gammaRegime === "NEGATIVE" ? "负 Gamma" : input.gammaRegime === "NEUTRAL" ? "Gamma 中性" : "Gamma 暂无";
+  const volumeLabel = relativeVolume === null ? "量能暂无" : relativeVolume >= 1.5 ? `成交活跃 ${relativeVolume.toFixed(1)}×` : relativeVolume <= 0.7 ? `成交偏淡 ${relativeVolume.toFixed(1)}×` : `成交常态 ${relativeVolume.toFixed(1)}×`;
+  const observe = !nearest
+    ? "先等待期权关键位数据恢复，再结合日线收盘确认结构。"
+    : nearest.delta >= 0
+      ? `关注收盘能否站上${nearest.label} ${money(nearest.value)}，并由相对成交量放大确认。`
+      : `关注收盘能否守住${nearest.label} ${money(nearest.value)}；失守后需重新检查下方关键位。`;
 
   return (
     <section className={`research-overview tone-${brief.items[0].tone}`} aria-labelledby="research-overview-title">
-      <div className="overview-heading">
-        <div><span>今日结构摘要</span><h2 id="research-overview-title">{brief.summary}</h2></div>
-        <b>基于公开日终数据</b>
+      <div className="overview-heading"><span>首屏研究摘要</span><b>日终数据 · {stockDate}</b></div>
+      <div className="overview-decision-grid">
+        <article className="decision-conclusion"><span>01 结论</span><h2 id="research-overview-title">{brief.summary}</h2><small>{confidence.label}可信度 · {confidence.reason}</small></article>
+        <article><span>02 依据</span><ul><li><b>趋势 {trendScore ?? "—"}/100</b></li><li><b>{volumeLabel}</b></li><li><b>{gammaLabel}</b></li><li><b>IV {ivPercentile.percentile === null ? ivPercentile.label : `${ivPercentile.percentile}%分位`}</b></li></ul></article>
+        <article><span>03 观察条件</span><strong>{nearest ? `${nearest.label} ${money(nearest.value)}` : "关键位暂无"}</strong><p>{observe}</p><small>{nearestPosition}</small></article>
       </div>
-      <div className="overview-facts">
-        <article><span>趋势强度</span><strong>{trendScore ?? "—"}<small>/ 100</small></strong><p>分数越高，当前价格与均线结构越强</p></article>
-        <article><span>判断可信度</span><strong className={`confidence-${confidence.level.toLowerCase()}`}>{confidence.label}</strong><p>{confidence.reason}</p></article>
-        <article><span>最近关键位</span><strong>{nearest ? `${nearest.label} ${money(nearest.value)}` : "暂无"}</strong><p>{nearestPosition}</p></article>
-        <article><span>数据日期</span><strong>{stockDate}</strong><p>非盘中实时行情</p></article>
-      </div>
-      <footer><span><b>能回答</b>当前结构强弱、关键价位与相对距离</span><span><b>不能回答</b>下一交易日一定涨跌</span></footer>
+      <footer><span>回答当前结构与观察条件，不预测下一交易日必然涨跌。</span></footer>
     </section>
   );
 }

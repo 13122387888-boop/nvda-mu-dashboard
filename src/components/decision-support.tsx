@@ -123,56 +123,17 @@ export function ResearchOverview({
       <div className="overview-decision-grid">
         <article className="decision-conclusion"><span>01 结论</span><h2 id="research-overview-title">{brief.summary}</h2><small>趋势数据完整度 {confidence.label} · {confidence.reason}</small></article>
         <article className="decision-evidence"><span>02 依据</span><div className="evidence-summary"><strong>{evidenceCounts.support}/{availableEvidence || evidence.length} 条依据与结论一致</strong><small>{evidenceCounts.support}一致 · {evidenceCounts.neutral}补充 · {evidenceCounts.conflict}需复核</small></div><div className="evidence-balance" aria-label="依据一致性分布">{evidence.map((item) => <i className={`evidence-${item.verdict}`} key={item.label} />)}</div><div className="evidence-grid">{evidence.map((item) => <BriefLink targetId={item.targetId} hint="查看 →" className={`evidence-item evidence-${item.verdict}`} key={item.label}><div><span>{item.label}</span><em>{verdictIcons[item.verdict]} {verdictLabels[item.verdict]}</em></div><strong>{item.value}</strong></BriefLink>)}</div><small className="evidence-legend">一致＝强化当前摘要 · 需复核＝存在相反信息；Gamma 只描述波动机制，不判断涨跌。</small></article>
-        <article><span>03 观察条件</span><strong>{nearest ? `${nearest.label} ${money(nearest.value)}` : "关键位暂无"}</strong><p>{observe}</p><small>{nearestPosition}</small></article>
+        <article className="decision-observation">
+          <span>03 <b className="beginner-only">现在先看</b><b className="professional-only">观察条件</b></span>
+          <div className="overview-reading-path beginner-only">
+            <BriefLink targetId="price-trend" className="overview-path-step" hint="查看 →"><b>1</b><span>方向</span><strong>{trendLabel}</strong></BriefLink>
+            <BriefLink targetId="price-distance" className="overview-path-step" hint="查看 →"><b>2</b><span>位置</span><strong>{nearest ? `${nearest.label} · ${nearestPosition}` : "关键价位数据不足"}</strong></BriefLink>
+            <BriefLink targetId={input.gammaRegime === "UNAVAILABLE" ? "momentum-pricing" : "options-gamma"} className="overview-path-step" hint="查看 →"><b>3</b><span>波动</span><strong>{gammaLabel}</strong></BriefLink>
+          </div>
+          <div className="overview-professional-observe professional-only"><strong>{nearest ? `${nearest.label} ${money(nearest.value)}` : "关键位暂无"}</strong><p>{observe}</p><small>{nearestPosition}</small></div>
+        </article>
       </div>
       <footer><span>回答当前结构与观察条件，不预测下一交易日必然涨跌。</span></footer>
-    </section>
-  );
-}
-
-export function BeginnerObservationPath({
-  input,
-  close,
-  trendScore,
-  confidenceLabel,
-  levels,
-  ivPercentile,
-}: {
-  input: DecisionSupportInput;
-  close: number;
-  trendScore: number | null;
-  confidenceLabel: string;
-  levels: KeyLevels;
-  ivPercentile: { percentile: number | null; label: string };
-}) {
-  const nearest = nearestKeyLevel(close, levels);
-  const trendState = trendScore === null ? "趋势数据不足" : trendScore >= 60 ? "方向偏强" : trendScore <= 40 ? "方向偏弱" : "方向暂不鲜明";
-  const nearestDistance = !nearest ? "关键价位数据不足" : Math.abs(nearest.delta) < 0.0005
-    ? "几乎与现价重合"
-    : `${nearest.delta > 0 ? "现价上方" : "现价下方"} ${percent(Math.abs(nearest.delta))}`;
-  const gammaState = input.gammaRegime === "POSITIVE" ? "正 Gamma · 波动较易被压住"
-    : input.gammaRegime === "NEGATIVE" ? "负 Gamma · 突破后更易放大"
-      : input.gammaRegime === "NEUTRAL" ? "Gamma 中性 · 暂无明显倾向"
-        : "Gamma 数据不足";
-  const ivState = ivPercentile.percentile === null ? ivPercentile.label : `IV 位于 ${ivPercentile.percentile}% 分位`;
-
-  return (
-    <section className="beginner-observation beginner-only" aria-labelledby="beginner-path-title">
-      <div className="beginner-path-heading">
-        <div><span>新手导读</span><h2 id="beginner-path-title">现在先看什么</h2></div>
-        <small>先读结论，再按 01 → 03 核对依据</small>
-      </div>
-      <div className="beginner-path-grid">
-        <BriefLink targetId="price-trend" className="beginner-path-card" hint="看趋势位置 →">
-          <span>01 先看方向</span><strong>{trendState}</strong><p>趋势分 {trendScore ?? "—"}/100 · 数据完整度 {confidenceLabel}</p>
-        </BriefLink>
-        <BriefLink targetId="price-distance" className="beginner-path-card" hint="看关键距离 →">
-          <span>02 再看位置</span><strong>{nearest ? `${nearest.label} ${money(nearest.value)}` : "暂无最近关键位"}</strong><p>{nearestDistance}</p>
-        </BriefLink>
-        <BriefLink targetId={input.gammaRegime === "UNAVAILABLE" ? "momentum-pricing" : "options-gamma"} className="beginner-path-card" hint="看波动机制 →">
-          <span>03 最后看波动</span><strong>{gammaState}</strong><p>{ivState}</p>
-        </BriefLink>
-      </div>
     </section>
   );
 }

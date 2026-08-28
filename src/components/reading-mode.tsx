@@ -50,14 +50,17 @@ export function ReadingModeControl() {
           <button type="button" aria-pressed={mode === "professional"} className={mode === "professional" ? "active" : ""} onClick={() => choose("professional")}>专业</button>
         </div>
       </div>
-      <div className="beginner-only beginner-glossary" aria-label="常用专业词人话翻译">
-        <span><b>趋势分</b>方向强弱打分</span>
-        <span><b>IV</b>期权定价里的预估波动</span>
-        <span><b>Gamma</b>波动容易被压住还是放大</span>
-        <span><b>OI</b>还没结束的期权合约</span>
-        <span><b>墙位</b>期权持仓最集中的价位</span>
-        <span><b>RSI</b>近期涨跌力度温度计</span>
-      </div>
+      <details className="beginner-only beginner-glossary">
+        <summary><span>专业词人话翻译</span><small>6 个常用词 · 点击展开</small></summary>
+        <div aria-label="常用专业词人话翻译">
+          <span><b>趋势分</b>方向强弱打分</span>
+          <span><b>IV</b>期权定价里的预估波动</span>
+          <span><b>Gamma</b>波动容易被压住还是放大</span>
+          <span><b>OI</b>还没结束的期权合约</span>
+          <span><b>墙位</b>期权持仓最集中的价位</span>
+          <span><b>RSI</b>近期涨跌力度温度计</span>
+        </div>
+      </details>
     </section>
   );
 }

@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
-import { BeginnerObservationPath, DataScope, KeyDistanceMap, ResearchOverview, ScenarioObservation } from "@/components/decision-support";
+import { DataScope, KeyDistanceMap, ResearchOverview, ScenarioObservation } from "@/components/decision-support";
 import { DataAlignmentNotice } from "@/components/data-alignment-notice";
 import { DayOverDayStrip } from "@/components/day-over-day-change";
 import { EventWindow } from "@/components/event-window";
@@ -86,7 +86,6 @@ export default async function StockPage({ params, searchParams }: { params: Prom
       </section>
       {staleBusinessDays > 1 && <div className="stale-data-alert"><b>数据更新提醒</b><span>股票数据停留在 {dashboard.stockDate}，已间隔 {staleBusinessDays} 个工作日，请先确认数据是否完成同步。</span></div>}
       <DataAlignmentNotice stockDate={dashboard.stockDate} optionsDate={dashboard.optionsSnapshotDate} />
-      <ReadingModeControl />
       <ResearchOverview
         input={decisionInput}
         close={dashboard.quote.close}
@@ -97,7 +96,7 @@ export default async function StockPage({ params, searchParams }: { params: Prom
         ivPercentile={dashboard.options.ivPercentile}
         levels={keyLevels}
       />
-      <BeginnerObservationPath input={decisionInput} close={dashboard.quote.close} trendScore={dashboard.trend.score} confidenceLabel={dashboard.trend.confidence.label} levels={keyLevels} ivPercentile={dashboard.options.ivPercentile} />
+      <ReadingModeControl />
       <DayOverDayStrip change={dashboard.dayOverDay} currentStockDate={dashboard.stockDate} currentOptionsDate={dashboard.optionsSnapshotDate} />
       <EventWindow symbol={symbol} assetType={dashboard.assetType} optionsExpiration={dashboard.optionsExpiration} />
       <ModuleJumpNav symbol={symbol} close={dashboard.quote.close} dailyChangePct={dashboard.quote.dailyChangePct} trendScore={dashboard.trend.score} confidenceLabel={dashboard.trend.confidence.label} optionWindowLabel={dashboard.optionWindowLabel} />

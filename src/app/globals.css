@@ -976,6 +976,8 @@ body { overflow-x: hidden; }
 
 /* Beginner reading layer and cross-source date alignment */
 html[data-reading-mode="professional"] .beginner-only { display: none !important; }
+.professional-only { display: none !important; }
+html[data-reading-mode="professional"] .professional-only { display: block !important; }
 
 .reading-mode-control { margin-top: 10px; border: 1px solid #303b49; border-left: 3px solid var(--info); background: linear-gradient(110deg, color-mix(in srgb, var(--info) 7%, #0d1219), #0d1219 58%); }
 .reading-mode-heading { min-height: 62px; padding: 11px 14px 11px 16px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
@@ -987,9 +989,12 @@ html[data-reading-mode="professional"] .beginner-only { display: none !important
 .reading-mode-switch button { min-width: 58px; min-height: 32px; padding: 7px 10px; border: 1px solid transparent; background: transparent; color: #748091; cursor: pointer; font: 700 .64rem/1 var(--font-geist-sans), sans-serif; }
 .reading-mode-switch button:hover, .reading-mode-switch button:focus-visible { color: #dce2ea; outline: none; }
 .reading-mode-switch button.active { border-color: color-mix(in srgb, var(--info) 48%, #303a47); background: color-mix(in srgb, var(--info) 11%, #111821); color: #d6d1ff; }
-.beginner-glossary { padding: 9px 14px 11px 16px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; border-top: 1px solid #252f3b; }
-.beginner-glossary span { min-width: 0; padding: 7px 9px; display: flex; align-items: baseline; gap: 7px; background: rgba(17,24,33,.75); color: #8793a2; font-size: .61rem; line-height: 1.35; }
-.beginner-glossary b { flex: 0 0 auto; color: #d2d8e1; font-size: .63rem; }
+.beginner-glossary { border-top: 1px solid #252f3b; }
+.beginner-glossary summary { padding: 9px 15px; display: flex; align-items: center; justify-content: space-between; gap: 12px; color: #aeb7c3; cursor: pointer; list-style-position: inside; font-size: .63rem; }
+.beginner-glossary summary small { color: #687484; font-size: .57rem; }
+.beginner-glossary > div { padding: 0 14px 11px 16px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.beginner-glossary > div span { min-width: 0; padding: 7px 9px; display: flex; align-items: baseline; gap: 7px; background: rgba(17,24,33,.75); color: #8793a2; font-size: .61rem; line-height: 1.35; }
+.beginner-glossary > div b { flex: 0 0 auto; color: #d2d8e1; font-size: .63rem; }
 
 .data-alignment-alert { margin-top: 10px; padding: 13px 15px; display: grid; grid-template-columns: 190px minmax(0, 1fr); align-items: center; gap: 16px; border: 1px solid #654f2e; border-left: 3px solid var(--warning); background: color-mix(in srgb, var(--warning) 7%, #0d1219); }
 .data-alignment-alert > strong { display: flex; align-items: center; gap: 9px; color: var(--warning); font-size: .72rem; }
@@ -1002,20 +1007,18 @@ html[data-reading-mode="professional"] .beginner-only { display: none !important
 .data-alignment-alert small { display: block; margin-top: 5px; color: #8793a2; font-size: .62rem; line-height: 1.5; }
 .data-alignment-alert.missing { grid-template-columns: 190px minmax(0, 1fr); }
 
-.beginner-observation { margin-top: 10px; border: 1px solid #303b49; background: #0d1219; }
-.beginner-path-heading { padding: 11px 14px; display: flex; align-items: center; justify-content: space-between; gap: 18px; border-bottom: 1px solid #27313d; }
-.beginner-path-heading > div { display: flex; align-items: baseline; gap: 10px; }
-.beginner-path-heading span { color: var(--green); font: 750 .56rem/1 var(--font-geist-mono), monospace; letter-spacing: .09em; }
-.beginner-path-heading h2 { margin: 0; font-size: .86rem; }
-.beginner-path-heading small { color: #6f7b89; font-size: .59rem; }
-.beginner-path-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; background: #27313d; }
-.beginner-path-card { appearance: none; min-width: 0; min-height: 112px; padding: 13px 14px; display: flex; flex-direction: column; align-items: flex-start; border: 0; background: #101720; color: inherit; cursor: pointer; text-align: left; transition: background .16s ease; }
-.beginner-path-card:hover, .beginner-path-card:focus-visible { background: #151e29; outline: none; }
-.beginner-path-card > span { color: #7e8a99; font: 750 .58rem/1 var(--font-geist-mono), monospace; letter-spacing: .06em; }
-.beginner-path-card > strong { margin-top: 10px; font-size: .76rem; line-height: 1.4; }
-.beginner-path-card > p { margin: 6px 0 0; color: #778393; font-size: .62rem; line-height: 1.45; }
-.beginner-path-card > i { width: fit-content; margin-top: auto; padding-top: 9px; color: #9faabc; font: 700 .58rem/1 var(--font-geist-sans), sans-serif; font-style: normal; }
-.beginner-path-card:hover > i { color: var(--green); }
+.decision-observation > span b { color: inherit; font: inherit; }
+.overview-reading-path { margin-top: 10px; display: grid; gap: 4px; }
+.overview-path-step { appearance: none; min-width: 0; padding: 7px 8px; display: grid; grid-template-columns: 18px 37px minmax(0, 1fr) auto; align-items: center; gap: 6px; border: 1px solid #2e3946; background: #111821; color: inherit; cursor: pointer; text-align: left; }
+.overview-path-step:hover, .overview-path-step:focus-visible { border-color: #536174; background: #151d27; outline: none; }
+.overview-path-step > b { width: 18px; height: 18px; display: grid; place-items: center; border: 1px solid #3d4958; color: var(--green); font: 750 .53rem/1 var(--font-geist-mono), monospace; }
+.overview-path-step > span { color: #7d8998; font-size: .58rem; }
+.overview-path-step > strong { min-width: 0; overflow: hidden; color: #d7dde6; font-size: .62rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.overview-path-step > i { color: #768394; font: 700 .54rem/1 var(--font-geist-sans), sans-serif; font-style: normal; white-space: nowrap; }
+.overview-path-step:hover > i { color: var(--green); }
+.overview-professional-observe > strong { display: block; margin-top: 13px; font-size: .95rem; }
+.overview-professional-observe > p { margin: 10px 0 0; }
+.overview-professional-observe > small { display: block; margin-top: 12px; }
 
 .metric-note-plain { margin: -7px 0 14px; padding: 13px 15px; display: grid; grid-template-columns: 68px 1fr; gap: 12px; border: 1px solid color-mix(in srgb, var(--info) 28%, #2b3542); background: color-mix(in srgb, var(--info) 7%, #10151d); }
 .metric-note-plain span { color: var(--info); font: 750 .62rem/1.5 var(--font-geist-mono), monospace; }
@@ -1025,15 +1028,10 @@ html[data-reading-mode="professional"] .beginner-only { display: none !important
   .reading-mode-heading { align-items: flex-start; gap: 10px; }
   .reading-mode-heading > div:first-child { padding-top: 2px; }
   .reading-mode-switch button { min-width: 50px; padding-left: 7px; padding-right: 7px; }
-  .beginner-glossary { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 10px; padding-right: 10px; }
-  .beginner-glossary span { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .beginner-glossary summary { padding-left: 10px; padding-right: 10px; }
+  .beginner-glossary > div { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 10px; padding-right: 10px; }
+  .beginner-glossary > div span { align-items: flex-start; flex-direction: column; gap: 3px; }
   .data-alignment-alert, .data-alignment-alert.missing { grid-template-columns: 1fr; gap: 8px; padding: 11px 12px; }
-  .beginner-path-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
-  .beginner-path-grid { grid-template-columns: 1fr; }
-  .beginner-path-card { min-height: 82px; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 5px 12px; }
-  .beginner-path-card > span, .beginner-path-card > strong, .beginner-path-card > p { grid-column: 1; }
-  .beginner-path-card > strong { margin-top: 3px; }
-  .beginner-path-card > p { margin-top: 0; }
-  .beginner-path-card > i { grid-column: 2; grid-row: 1 / span 3; align-self: center; margin: 0; padding: 0; white-space: nowrap; }
+  .overview-path-step { grid-template-columns: 18px 34px minmax(0, 1fr) auto; padding: 7px; }
   .metric-note-plain { grid-template-columns: 1fr; gap: 5px; }
 }

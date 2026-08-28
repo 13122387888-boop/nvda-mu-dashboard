@@ -111,12 +111,6 @@ export function ResearchOverview({
   const verdictIcons = { support: "✓", neutral: "·", conflict: "!" } as const;
   const evidenceCounts = evidence.reduce((counts, item) => ({ ...counts, [item.verdict]: counts[item.verdict] + 1 }), { support: 0, neutral: 0, conflict: 0 });
   const availableEvidence = evidence.filter((item) => !item.value.includes("暂无") && !item.value.includes("积累中") && !item.value.startsWith("—")).length;
-  const observe = !nearest
-    ? "先等待期权关键位数据恢复，再结合日线收盘确认结构。"
-    : nearest.delta >= 0
-      ? `关注收盘能否站上${nearest.label} ${money(nearest.value)}，并由相对成交量放大确认。`
-      : `关注收盘能否守住${nearest.label} ${money(nearest.value)}；失守后需重新检查下方关键位。`;
-
   return (
     <section className={`research-overview tone-${brief.items[0].tone}`} aria-labelledby="research-overview-title">
       <div className="overview-heading"><span>首屏研究摘要</span><b>日终数据 · {stockDate}</b></div>
@@ -124,13 +118,12 @@ export function ResearchOverview({
         <article className="decision-conclusion"><span>01 结论</span><h2 id="research-overview-title">{brief.summary}</h2><small>趋势数据完整度 {confidence.label} · {confidence.reason}</small></article>
         <article className="decision-evidence"><span>02 依据</span><div className="evidence-summary"><strong>{evidenceCounts.support}/{availableEvidence || evidence.length} 条依据与结论一致</strong><small>{evidenceCounts.support}一致 · {evidenceCounts.neutral}补充 · {evidenceCounts.conflict}需复核</small></div><div className="evidence-balance" aria-label="依据一致性分布">{evidence.map((item) => <i className={`evidence-${item.verdict}`} key={item.label} />)}</div><div className="evidence-grid">{evidence.map((item) => <BriefLink targetId={item.targetId} hint="查看 →" className={`evidence-item evidence-${item.verdict}`} key={item.label}><div><span>{item.label}</span><em>{verdictIcons[item.verdict]} {verdictLabels[item.verdict]}</em></div><strong>{item.value}</strong></BriefLink>)}</div><small className="evidence-legend">一致＝强化当前摘要 · 需复核＝存在相反信息；Gamma 只描述波动机制，不判断涨跌。</small></article>
         <article className="decision-observation">
-          <span>03 <b className="beginner-only">现在先看</b><b className="professional-only">观察条件</b></span>
-          <div className="overview-reading-path beginner-only">
+          <span>03 现在先看</span>
+          <div className="overview-reading-path">
             <BriefLink targetId="price-trend" className="overview-path-step" hint="查看 →"><b>1</b><span>方向</span><strong>{trendLabel}</strong></BriefLink>
             <BriefLink targetId="price-distance" className="overview-path-step" hint="查看 →"><b>2</b><span>位置</span><strong>{nearest ? `${nearest.label} · ${nearestPosition}` : "关键价位数据不足"}</strong></BriefLink>
             <BriefLink targetId={input.gammaRegime === "UNAVAILABLE" ? "momentum-pricing" : "options-gamma"} className="overview-path-step" hint="查看 →"><b>3</b><span>波动</span><strong>{gammaLabel}</strong></BriefLink>
           </div>
-          <div className="overview-professional-observe professional-only"><strong>{nearest ? `${nearest.label} ${money(nearest.value)}` : "关键位暂无"}</strong><p>{observe}</p><small>{nearestPosition}</small></div>
         </article>
       </div>
       <footer><span>回答当前结构与观察条件，不预测下一交易日必然涨跌。</span></footer>

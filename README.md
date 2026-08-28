@@ -121,9 +121,7 @@ Symbols outside `src/lib/stocks.ts` return 404. The public APIs do not expose ra
 
 The dashboard also derives evidence-state summaries, 10-snapshot wall migration, expected-range and wall-continuation review, IV percentile/term structure, and 25-delta IV skew. IV skew filters zero/extreme IV, requires open interest, uses the liquid expiration closest to 30 days (preferably at least 7 days), and reports `25Δ Put IV − 25Δ Call IV`; it is a relative-pricing measure rather than a directional forecast.
 
-Stock detail pages default to a persisted beginner reading layer: plain-language term translations, a three-step “what to read now” path, and evidence wording that avoids implying buy/sell support. Professional mode keeps the same calculations while hiding the extra guidance. Stock and option source dates are compared independently of the selected expiration window; mismatched snapshots are disclosed before the research summary.
-
-The compact event window currently uses a Longbridge finance-calendar snapshot verified on `2026-08-28`, plus the live option expiration already stored from OnclickMedia. Only MU had a confirmed future company earnings date in that snapshot. Other stocks display “date pending”, while ETFs explicitly display “no company earnings”. The source date remains visible in the UI and the calendar degrades to “update required” after the verified macro window ends; the Vercel runtime does not contain Longbridge credentials.
+Stock detail pages use one beginner-readable layer: plain-language metric explanations, a three-step “what to read now” path, and evidence wording that avoids implying buy/sell support. Stock and option source dates remain visible as neutral scope tags; different snapshot dates are not promoted as a warning.
 
 ## 5. Validation
 

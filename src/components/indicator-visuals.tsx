@@ -61,33 +61,48 @@ export function TrendDeviation({
   ma50: NullableNumber;
   ma200: NullableNumber;
 }) {
-  const rows = [
-    { label: "20日均线", value: ma20, color: "#57d68d" },
-    { label: "50日均线", value: ma50, color: "#4f8cff" },
-    { label: "200日均线", value: ma200, color: "#f0b45c" },
-  ];
+  const levels = [
+    { label: "现价", value: close, className: "spot" },
+    { label: "20日均线", value: ma20, className: "ma20" },
+    { label: "50日均线", value: ma50, className: "ma50" },
+    { label: "200日均线", value: ma200, className: "ma200" },
+  ].filter((level): level is { label: string; value: number; className: string } => level.value !== null && Number.isFinite(level.value));
+  const ordered = [...levels].sort((a, b) => a.value - b.value);
+  const rawMin = Math.min(...ordered.map((level) => level.value));
+  const rawMax = Math.max(...ordered.map((level) => level.value));
+  const rawSpan = Math.max(rawMax - rawMin, close * 0.04, 1);
+  const min = rawMin - rawSpan * 0.08;
+  const max = rawMax + rawSpan * 0.08;
+  const position = (value: number) => `${((value - min) / (max - min)) * 100}%`;
+  const relativeToSpot = (value: number, label: string) => {
+    if (label === "现价") return "基准";
+    const deviation = ((value - close) / close) * 100;
+    if (Math.abs(deviation) < 0.005) return "与现价重合";
+    return `${deviation > 0 ? "高于" : "低于"}现价 ${Math.abs(deviation).toFixed(1)}%`;
+  };
 
   return (
-    <div className="visual-card trend-visual">
+    <div className="visual-card trend-visual trend-position-map">
       <div className="visual-card-heading">
-        <div><span>趋势位置</span><div className="heading-with-help"><strong><MetricLabel metric="movingAverage">收盘价相对均线</MetricLabel></strong></div></div>
-        <small>中轴为均线 · 满刻度 ±10%</small>
+        <div><span>趋势位置</span><div className="heading-with-help"><strong><MetricLabel metric="movingAverage">现价与均线位置</MetricLabel></strong></div></div>
+        <small>同一价格轴 · 直接比较</small>
       </div>
-      <div className="deviation-list">
-        {rows.map((row) => {
-          const deviation = row.value === null || row.value === 0 ? null : ((close / row.value) - 1) * 100;
-          const magnitude = deviation === null ? 0 : clamp(Math.abs(deviation) / 10 * 50, 0, 50);
-          return (
-            <div className="deviation-row" key={row.label}>
-              <div className="deviation-meta"><span><i style={{ background: row.color }} />{row.label}</span><b>{row.value === null ? "—" : money(row.value)}</b></div>
-              <div className="deviation-track" aria-label={`${row.label}偏离 ${deviation === null ? "暂无" : `${deviation.toFixed(2)}%`}`}>
-                <i className="deviation-center" />
-                {deviation !== null && <i className={`deviation-fill ${deviation >= 0 ? "above" : "below"}`} style={{ "--magnitude": `${magnitude}%`, "--bar-color": row.color } as CSSProperties} />}
-              </div>
-              <strong className={deviation !== null && deviation >= 0 ? "positive" : "negative"}>{deviation === null ? "—" : `${deviation >= 0 ? "+" : ""}${deviation.toFixed(2)}%`}</strong>
+      <div className="level-map-scroll">
+        <div className="level-map" role="img" aria-label="现价与20日、50日、200日均线价格位置图">
+          <i className="level-axis" />
+          {ordered.map((level, index) => (
+            <div className={`level-pin ${level.className} tier-${index % 4}`} style={{ "--level-left": position(level.value) } as CSSProperties} key={level.label}>
+              <span>{level.label}</span><b>{money(level.value)}</b><i />
             </div>
-          );
-        })}
+          ))}
+        </div>
+      </div>
+      <div className="level-ladder" aria-label="现价与均线完整列表">
+        {[...ordered].reverse().map((level) => (
+          <div className={level.className} key={level.label}>
+            <i /><span>{level.label}</span><b>{money(level.value)}</b><small>{relativeToSpot(level.value, level.label)}</small>
+          </div>
+        ))}
       </div>
     </div>
   );

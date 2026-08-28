@@ -1,6 +1,6 @@
 # US Equity EOD Research Dashboard
 
-A product-validation dashboard for a configuration-driven US equity watchlist. The current pool covers **NVDA, MU, SNDK, MSFT, TSLA, DRAM, and SOXX**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
+A product-validation dashboard for a configuration-driven US equity and ETF watchlist. The current pool covers **NVDA, MU, SNDK, MSFT, TSLA, DRAM, SOXX, QQQ, and IBIT**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
 
 This is research software, not a real-time feed or investment-advice product.
 
@@ -36,7 +36,7 @@ The adapter uses the current official public endpoints documented at [OnclickMed
 
 The provider is called only through `MarketDataProvider`. The adapter converts `call`/`put` to `CALL`/`PUT`, validates every number and market date, keeps nullable quote/Greek fields, stores the provider `contract_id`, and normalizes percentage-form IV (for example `45`) to decimal IV (`0.45`). Current API responses already use decimal IV in the nested `greeks` object.
 
-The public/free API needs no key. Its documented option-chain response is limited to the 16 closest-to-the-money strikes per expiration and shorter history; a level-2 key is needed for the full database. Any coverage warning is recorded on the sync run. OnclickMedia remains the automated daily source. When its adjusted-history coverage has gaps, `npm run backfill:longbridge` can add only missing daily bars from the locally authenticated Longbridge CLI; stored rows retain their source label. OnclickMedia v2 daily bars are interval-end stamped at midnight on the following calendar date; the adapter maps that label back to the US market trade date and tests this behavior.
+The public/free API needs no key. Its documented option-chain response is limited to the closest-to-the-money strikes per expiration and shorter history; a level-2 key is needed for the full database. Any coverage warning is recorded on the sync run. OnclickMedia remains the automated daily options source. When adjusted-history coverage has gaps, `npm run backfill:longbridge` adds missing daily bars and refreshes the most recent eight sessions from the locally authenticated Longbridge CLI so an earlier intraday snapshot cannot remain stored as the final close. Stored rows retain their source label. OnclickMedia v2 daily bars are interval-end stamped at midnight on the following calendar date; the adapter maps that label back to the US market trade date and tests this behavior.
 
 ## 1. Create a Supabase project
 
@@ -98,7 +98,7 @@ npm run backfill:longbridge -- all 2026-01-01 2026-12-31
 npm run sync:data
 ```
 
-The backfill inserts missing dates only and never overwrites existing OnclickMedia rows. It is not part of the Vercel runtime or Cron job.
+The backfill inserts missing dates, refreshes the most recent eight sessions, and recalculates the latest metrics. It is not part of the Vercel runtime or Cron job.
 
 Vercel Cron calls `GET /api/cron/sync` at `23:30 UTC` on weekdays. It requires:
 

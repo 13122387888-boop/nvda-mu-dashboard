@@ -5,7 +5,7 @@ import { calculateGammaExposureProxy } from "@/lib/indicators/options/gamma-expo
 import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics";
 import { putCallOpenInterest } from "@/lib/indicators/options/put-call-ratio";
 import { movingAverageSeries } from "@/lib/indicators/moving-average";
-import { calculateTrendConfidence, calculateTrendScore } from "@/lib/indicators/stock-metrics";
+import { calculateStockMetrics, calculateTrendConfidence, calculateTrendScore } from "@/lib/indicators/stock-metrics";
 import { realizedVolatility } from "@/lib/indicators/realized-volatility";
 import { wilderRsi } from "@/lib/indicators/rsi";
 import type { OptionContractRecord, SupportedSymbol } from "@/lib/providers/types";
@@ -92,6 +92,88 @@ function aggregateOptionWall(chain: OptionContractRecord[], side: "CALL" | "PUT"
     .sort((a, b) => b[1] - a[1] || Math.abs(a[0] - close) - Math.abs(b[0] - close))[0]?.[0] ?? null;
 }
 
+async function loadDayOverDayChange(input: {
+  symbol: SupportedSymbol;
+  currentTradeDate: Date;
+  currentOptionsTradeDate: Date | null;
+  currentTrendScore: number | null;
+  currentClose: number;
+  currentOptionRows?: OptionDatabaseRow[];
+}) {
+  const prisma = getPrisma();
+  const historyRows = await prisma.stockDaily.findMany({
+    where: { symbol: input.symbol, tradeDate: { lte: input.currentTradeDate } },
+    orderBy: { tradeDate: "desc" },
+    take: 210,
+  });
+  const history = historyRows.reverse().map((row) => ({
+    symbol: input.symbol,
+    tradeDate: dateToYmd(row.tradeDate),
+    open: Number(row.open),
+    high: Number(row.high),
+    low: Number(row.low),
+    close: Number(row.close),
+    adjustedClose: numberOrNull(row.adjustedClose),
+    volume: row.volume === null ? null : Number(row.volume),
+    provider: row.provider === "LONGBRIDGE" ? "LONGBRIDGE" as const : "ONCLICKMEDIA" as const,
+  }));
+  const previousStock = history.length > 1 ? calculateStockMetrics(history.slice(0, -1)) : null;
+
+  const currentOptionsDate = input.currentOptionsTradeDate;
+  const previousOptionDateRow = currentOptionsDate
+    ? await prisma.optionEod.findFirst({
+        where: { symbol: input.symbol, tradeDate: { lt: currentOptionsDate } },
+        orderBy: { tradeDate: "desc" },
+        select: { tradeDate: true },
+      })
+    : null;
+  const [currentOptionRows, previousOptionRows] = await Promise.all([
+    input.currentOptionRows
+      ? Promise.resolve(input.currentOptionRows)
+      : currentOptionsDate
+        ? prisma.optionEod.findMany({ where: { symbol: input.symbol, tradeDate: currentOptionsDate, expiration: { gt: currentOptionsDate } } })
+        : Promise.resolve([]),
+    previousOptionDateRow
+      ? prisma.optionEod.findMany({ where: { symbol: input.symbol, tradeDate: previousOptionDateRow.tradeDate, expiration: { gt: previousOptionDateRow.tradeDate } } })
+      : Promise.resolve([]),
+  ]);
+  const currentOptions = currentOptionRows.map(toOptionRecord);
+  const previousOptions = previousOptionRows.map(toOptionRecord);
+  const previousClose = previousStock?.close ?? null;
+  const currentGamma = calculateGammaExposureProxy(currentOptions.map((row) => ({
+    optionType: row.optionType,
+    gamma: row.gamma,
+    openInterest: row.openInterest,
+    contractMultiplier: row.contractMultiplier,
+  })), input.currentClose).regime;
+  const previousGamma = previousClose === null ? "UNAVAILABLE" : calculateGammaExposureProxy(previousOptions.map((row) => ({
+    optionType: row.optionType,
+    gamma: row.gamma,
+    openInterest: row.openInterest,
+    contractMultiplier: row.contractMultiplier,
+  })), previousClose).regime;
+  const currentCallWall = aggregateOptionWall(currentOptions, "CALL", input.currentClose);
+  const previousCallWall = previousClose === null ? null : aggregateOptionWall(previousOptions, "CALL", previousClose);
+  const currentExpectedUpper = calculateOptionMetrics(currentOptions, input.currentClose).expectedUpper;
+
+  return {
+    previousStockDate: previousStock?.tradeDate ?? null,
+    previousOptionsDate: previousOptionDateRow ? dateToYmd(previousOptionDateRow.tradeDate) : null,
+    trendScoreDelta: input.currentTrendScore === null || previousStock?.trendScore === null || previousStock?.trendScore === undefined
+      ? null
+      : input.currentTrendScore - previousStock.trendScore,
+    gamma: { previous: previousGamma, current: currentGamma },
+    callWall: {
+      previous: previousCallWall,
+      current: currentCallWall,
+      delta: currentCallWall === null || previousCallWall === null ? null : currentCallWall - previousCallWall,
+    },
+    expectedUpperDistancePct: currentExpectedUpper === null || input.currentClose <= 0
+      ? null
+      : ((currentExpectedUpper - input.currentClose) / input.currentClose) * 100,
+  };
+}
+
 function percentileRank(values: Array<number | null>, current: number | null, minimumSamples = 60) {
   const valid = values.filter((value): value is number => value !== null && Number.isFinite(value)).slice(-252);
   if (current === null || !Number.isFinite(current) || valid.length < minimumSamples) {
@@ -173,19 +255,20 @@ async function loadStockCards() {
         name: STOCKS[symbol].name,
         shortName: STOCKS[symbol].shortName,
         accent: STOCKS[symbol].accent,
+        assetType: STOCKS[symbol].assetType,
         close: null,
         dailyChangePct: null,
         trendScore: null,
         marketStatus: "INSUFFICIENT_DATA" as const,
         gammaRegime: "UNAVAILABLE" as const,
         attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
+        dayOverDay: null,
         dataDate: null,
       };
     }
     const optionRows = metrics.optionsTradeDate
       ? await prisma.optionEod.findMany({
           where: { symbol, tradeDate: metrics.optionsTradeDate, expiration: { gt: metrics.optionsTradeDate } },
-          select: { optionType: true, gamma: true, openInterest: true, contractMultiplier: true },
         })
       : [];
     const close = Number(metrics.close);
@@ -196,7 +279,15 @@ async function loadStockCards() {
       contractMultiplier: row.contractMultiplier,
     })), close).regime;
     const optionsDate = metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null;
-    const attention = stockAttention({
+    const trendScore = calculateTrendScore({
+      close,
+      ma20: numberOrNull(metrics.ma20),
+      ma50: numberOrNull(metrics.ma50),
+      ma200: numberOrNull(metrics.ma200),
+      rsi14: numberOrNull(metrics.rsi14),
+    });
+    const [attention, dayOverDay] = await Promise.all([
+      Promise.resolve(stockAttention({
       close,
       marketStatus: metrics.marketStatus,
       optionsDate,
@@ -207,30 +298,35 @@ async function loadStockCards() {
       putWall: numberOrNull(metrics.putWall),
       atmIv: numberOrNull(metrics.atmIv),
       rv20: numberOrNull(metrics.rv20),
-    });
+      })),
+      loadDayOverDayChange({
+        symbol,
+        currentTradeDate: metrics.tradeDate,
+        currentOptionsTradeDate: metrics.optionsTradeDate,
+        currentTrendScore: trendScore,
+        currentClose: close,
+        currentOptionRows: optionRows,
+      }),
+    ]);
     return {
       symbol,
       name: STOCKS[symbol].name,
       shortName: STOCKS[symbol].shortName,
       accent: STOCKS[symbol].accent,
+      assetType: STOCKS[symbol].assetType,
       close,
       dailyChangePct: numberOrNull(metrics.dailyChangePct),
-      trendScore: calculateTrendScore({
-        close,
-        ma20: numberOrNull(metrics.ma20),
-        ma50: numberOrNull(metrics.ma50),
-        ma200: numberOrNull(metrics.ma200),
-        rsi14: numberOrNull(metrics.rsi14),
-      }),
+      trendScore,
       marketStatus: metrics.marketStatus,
       gammaRegime,
       attention,
+      dayOverDay,
       dataDate: dateToYmd(metrics.tradeDate),
     };
   }));
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v4"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v5"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();
@@ -266,6 +362,14 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
   const currentMa50 = numberOrNull(metrics.ma50);
   const currentMa200 = numberOrNull(metrics.ma200);
   const trendScore = calculateTrendScore({ close, ma20: currentMa20, ma50: currentMa50, ma200: currentMa200, rsi14: currentRsi14 });
+  const dayOverDay = await loadDayOverDayChange({
+    symbol,
+    currentTradeDate: metrics.tradeDate,
+    currentOptionsTradeDate: metrics.optionsTradeDate,
+    currentTrendScore: trendScore,
+    currentClose: close,
+    currentOptionRows: allOptionRows,
+  });
   const trendConfidence = calculateTrendConfidence({ ma20: currentMa20, ma50: currentMa50, ma200: currentMa200, historyCount: calculationHistory.length });
   const historicalPositions = buildHistoricalPositions(closes, { rsi14: currentRsi14, rv20: currentRv20, ma20: currentMa20 });
   const optionWindows = Object.keys(OPTION_WINDOW_LIMITS) as OptionWindow[];
@@ -315,6 +419,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
       symbol,
       name: STOCKS[symbol].name,
       accent: STOCKS[symbol].accent,
+      assetType: STOCKS[symbol].assetType,
       stockDate: dateToYmd(metrics.tradeDate),
       stockProviders: [...new Set(calculationHistory.map((row) => row.provider))].sort(),
       optionsDate: optionRows.length && metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null,
@@ -351,6 +456,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
         gammaExposure,
       },
       historicalPositions,
+      dayOverDay,
       priceHistory,
       optionOpenInterest: [...oi.values()],
     };
@@ -362,7 +468,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v3"],
+  ["stock-dashboard-bundle-v4"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

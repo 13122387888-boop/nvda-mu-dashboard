@@ -3,6 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { DataScope, KeyDistanceMap, ResearchOverview, ScenarioObservation } from "@/components/decision-support";
+import { DayOverDayStrip } from "@/components/day-over-day-change";
 import { OptionOiChart } from "@/components/option-oi-chart";
 import { OptionWindowSelector } from "@/components/option-window-selector";
 import { PriceChart } from "@/components/price-chart";
@@ -84,6 +85,7 @@ export default async function StockPage({ params, searchParams }: { params: Prom
         stockDate={dashboard.stockDate}
         levels={{ callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, maxPain: dashboard.options.maxPain, expectedUpper: dashboard.options.expectedUpper, expectedLower: dashboard.options.expectedLower }}
       />
+      <DayOverDayStrip change={dashboard.dayOverDay} currentStockDate={dashboard.stockDate} currentOptionsDate={dashboard.optionsDate} />
       <ModuleJumpNav symbol={symbol} close={dashboard.quote.close} dailyChangePct={dashboard.quote.dailyChangePct} trendScore={dashboard.trend.score} confidenceLabel={dashboard.trend.confidence.label} optionWindowLabel={dashboard.optionWindowLabel} />
       <DataScope stockDate={dashboard.stockDate} optionsDate={dashboard.optionsDate} expiration={dashboard.optionsExpiration} optionWindow={dashboard.optionWindowLabel} strikeCount={dashboard.optionOpenInterest.length} stockProviders={dashboard.stockProviders} />
 

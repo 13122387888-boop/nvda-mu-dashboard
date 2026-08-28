@@ -38,8 +38,8 @@ export function OptionWindowSelector({
   };
 
   return (
-    <div className={`expiration-selector ${isPending ? "pending" : ""}`} aria-label="选择期权剩余到期天数">
-      <div><span>期权到期日</span><small>切换时保留当前位置，不重新跳回页首</small></div>
+    <div className={`expiration-selector ${isPending ? "pending" : ""}`} aria-label="选择期权剩余到期天数" aria-busy={isPending}>
+      <span className="expiration-label">到期日</span>
       <nav aria-label="期权期限范围">
         {optionWindows.map((item) => {
           const active = item.value === optimisticSelection;
@@ -48,22 +48,21 @@ export function OptionWindowSelector({
             <button
               type="button"
               className={active ? "active" : ""}
+              aria-label={`${item.label}，${counts[item.value]}份合约`}
               aria-pressed={active}
+              title={`${counts[item.value]}份合约`}
               disabled={disabled || isPending}
               onPointerEnter={() => prefetchWindow(item.value)}
               onFocus={() => prefetchWindow(item.value)}
               onClick={() => selectWindow(item.value)}
               key={item.value}
             >
-              <span>{item.label}</span><small>{counts[item.value]} 份合约</small>
+              {item.label}
             </button>
           );
         })}
       </nav>
-      <footer>
-        <small>7 / 30 / 50 天指剩余到期天数以内；灰色选项表示当前没有合约。</small>
-        <span aria-live="polite">{isPending ? "正在更新期权范围…" : "切换后墙位、OI 与 Gamma 同步更新"}</span>
-      </footer>
+      <span className="expiration-status" aria-live="polite">{isPending ? "更新中…" : ""}</span>
     </div>
   );
 }

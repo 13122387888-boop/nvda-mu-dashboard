@@ -3,17 +3,14 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { DataScope, KeyDistanceMap, ResearchOverview, ScenarioObservation } from "@/components/decision-support";
-import { DataAlignmentNotice } from "@/components/data-alignment-notice";
 import { DayOverDayStrip } from "@/components/day-over-day-change";
-import { EventWindow } from "@/components/event-window";
 import { OptionOiChart } from "@/components/option-oi-chart";
 import { OptionStructureHistory } from "@/components/option-structure-history";
 import { OptionWindowSelector } from "@/components/option-window-selector";
 import { IvStructureVisual, WallStrengthVisual } from "@/components/option-insight-visuals";
 import { PriceChart } from "@/components/price-chart";
-import { ReadingModeControl } from "@/components/reading-mode";
 import { ExpectedRangeVisual, GammaExposureVisual, MomentumInformation, MomentumVisual, PutCallVisual, TrendDeviation } from "@/components/indicator-visuals";
-import { MetricLabel, type MetricHelpKey } from "@/components/metric-help";
+import { MetricLabel } from "@/components/metric-help";
 import { ModuleJumpNav } from "@/components/module-jump-nav";
 import { HistoricalPosition, SnapshotLink } from "@/components/product-insights";
 import { SectionPager } from "@/components/section-pager";
@@ -31,10 +28,6 @@ export async function generateMetadata({ params }: { params: Promise<{ symbol: s
     openGraph: { title: `${symbol} 收盘分析`, description: `${STOCKS[symbol].name}的收盘行情、趋势指标与期权持仓研究看板。`, images: [] },
     twitter: { card: "summary", title: `${symbol} 收盘分析`, description: `${STOCKS[symbol].name}的收盘行情、趋势指标与期权持仓研究看板。`, images: [] },
   };
-}
-
-function MetricCard({ label, value, note, help }: { label: string; value: string; note?: string; help?: MetricHelpKey }) {
-  return <div className="metric-card">{help ? <MetricLabel metric={help}>{label}</MetricLabel> : <span>{label}</span>}<strong>{value}</strong>{note && <small>{note}</small>}</div>;
 }
 
 function ModuleHeading({ index, kicker, title, description, canAnswer, cannotAnswer, accent, aside }: { index: string; kicker: string; title: string; description: string; canAnswer: string; cannotAnswer: string; accent: string; aside?: React.ReactNode }) {
@@ -85,7 +78,6 @@ export default async function StockPage({ params, searchParams }: { params: Prom
         <div className="quote-block"><strong>{money(dashboard.quote.close)}</strong><span className={change !== null && change >= 0 ? "positive" : "negative"}>{change === null ? "—" : `${change >= 0 ? "+" : ""}${percent(change, true)}`}</span><SnapshotLink symbol={symbol} window={dashboard.optionWindow} /></div>
       </section>
       {staleBusinessDays > 1 && <div className="stale-data-alert"><b>数据更新提醒</b><span>股票数据停留在 {dashboard.stockDate}，已间隔 {staleBusinessDays} 个工作日，请先确认数据是否完成同步。</span></div>}
-      <DataAlignmentNotice stockDate={dashboard.stockDate} optionsDate={dashboard.optionsSnapshotDate} />
       <ResearchOverview
         input={decisionInput}
         close={dashboard.quote.close}
@@ -96,16 +88,14 @@ export default async function StockPage({ params, searchParams }: { params: Prom
         ivPercentile={dashboard.options.ivPercentile}
         levels={keyLevels}
       />
-      <ReadingModeControl />
       <DayOverDayStrip change={dashboard.dayOverDay} currentStockDate={dashboard.stockDate} currentOptionsDate={dashboard.optionsSnapshotDate} />
-      <EventWindow symbol={symbol} assetType={dashboard.assetType} optionsExpiration={dashboard.optionsExpiration} />
       <ModuleJumpNav symbol={symbol} close={dashboard.quote.close} dailyChangePct={dashboard.quote.dailyChangePct} trendScore={dashboard.trend.score} confidenceLabel={dashboard.trend.confidence.label} optionWindowLabel={dashboard.optionWindowLabel} />
       <DataScope stockDate={dashboard.stockDate} optionsDate={dashboard.optionsSnapshotDate} expiration={dashboard.optionsExpiration} optionWindow={dashboard.optionWindowLabel} strikeCount={dashboard.optionOpenInterest.length} stockProviders={dashboard.stockProviders} />
 
       <section className="section-block" id="module-price"><ModuleHeading index="01" kicker="价格结构" title="价格趋势与关键位" description="价格处在什么趋势，离重要期权价位还有多远。" canAnswer="趋势位置与关键价位距离" cannotAnswer="突破后的必然涨跌方向" accent="var(--positive)" />
         <SectionPager label="价格趋势与关键位视图" accent="var(--positive)" tabs={[
           { id: "price-chart", label: "K线图", content: <div className="chart-panel"><div className="chart-gesture-note"><span>↔ 左右拖动查看历史</span><span>成交量柱＋20日均量，点按读取 RVOL</span></div><PriceChart data={dashboard.priceHistory} levels={{ maxPain: dashboard.options.maxPain, callWall: dashboard.options.wallProfiles.call, putWall: dashboard.options.wallProfiles.put, expectedUpper: dashboard.options.expectedUpper, expectedLower: dashboard.options.expectedLower }} /></div> },
-          { id: "price-trend", label: "趋势位置", content: <><div className="metric-grid four"><MetricCard label="收盘价" value={money(dashboard.quote.close)} /><MetricCard label="20日均线" value={money(dashboard.trend.ma20)} help="movingAverage" /><MetricCard label="50日均线" value={money(dashboard.trend.ma50)} help="movingAverage" /><MetricCard label="200日均线" value={money(dashboard.trend.ma200)} help="movingAverage" /></div><TrendDeviation close={dashboard.quote.close} ma20={dashboard.trend.ma20} ma50={dashboard.trend.ma50} ma200={dashboard.trend.ma200} /></> },
+          { id: "price-trend", label: "趋势位置", content: <TrendDeviation close={dashboard.quote.close} ma20={dashboard.trend.ma20} ma50={dashboard.trend.ma50} ma200={dashboard.trend.ma200} /> },
           { id: "price-distance", label: "关键距离", content: <KeyDistanceMap close={dashboard.quote.close} callWall={dashboard.options.callWall} putWall={dashboard.options.putWall} maxPain={dashboard.options.maxPain} expectedUpper={dashboard.options.expectedUpper} expectedLower={dashboard.options.expectedLower} expectedMove={dashboard.options.expectedMove} /> },
           { id: "price-scenarios", label: "情景观察", content: <ScenarioObservation input={{ close: dashboard.quote.close, callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, marketStatus: dashboard.quote.marketStatus, gammaRegime: dashboard.options.gammaExposure.regime }} /> },
         ]} />
@@ -123,8 +113,8 @@ export default async function StockPage({ params, searchParams }: { params: Prom
       <section className="section-block" id="module-options"><ModuleHeading index="03" kicker="期权持仓" title="期权持仓结构" description="观察未平仓量集中位置、预期区间与 Gamma 结构代理。" canAnswer="OI集中位置与到期波动定价" cannotAnswer="真实做市商方向或未来价格" accent="var(--warning)" />
         <OptionWindowSelector key={dashboard.optionWindow} symbol={symbol} selected={dashboard.optionWindow} counts={dashboard.optionWindowCounts} />
         <div className="option-scope-summary">
-          <span><b>墙位 / OI / Gamma</b>{dashboard.optionWindowLabel}汇总 · {dashboard.optionWindowCounts[dashboard.optionWindow]} 份合约</span>
-          <span><b>预期区间 / IV / 最大痛点</b>{dashboard.optionsExpiration ? `采用最近到期 ${dashboard.optionsExpiration}` : "当前范围暂无可用定价到期日"}</span>
+          <span><b>墙位 / OI / Gamma</b><em>{dashboard.optionWindowLabel} · {dashboard.optionWindowCounts[dashboard.optionWindow]}份</em></span>
+          <span><b>预期区间 / IV / 最大痛点</b><em>{dashboard.optionsExpiration ? `最近到期 ${dashboard.optionsExpiration}` : "暂无到期日"}</em></span>
         </div>
         {!dashboard.optionsDate ? <div className="chart-empty">暂无可用期权数据</div> : <>
           <SectionPager label="期权持仓结构视图" accent="var(--warning)" tabs={[

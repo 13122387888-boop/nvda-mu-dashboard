@@ -13,7 +13,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000"),
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL ?? "https://eod-radar.vercel.app"),
   title: { default: "热门美股收盘研究", template: "%s · 收盘研究" },
   description: "热门美股的收盘行情、趋势、波动率与期权持仓研究看板。",
   openGraph: {

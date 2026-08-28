@@ -978,6 +978,7 @@ body { overflow-x: hidden; }
 html[data-reading-mode="professional"] .beginner-only { display: none !important; }
 .professional-only { display: none !important; }
 html[data-reading-mode="professional"] .professional-only { display: block !important; }
+html[data-reading-mode="professional"] b.professional-only { display: inline !important; }
 
 .reading-mode-control { margin-top: 10px; border: 1px solid #303b49; border-left: 3px solid var(--info); background: linear-gradient(110deg, color-mix(in srgb, var(--info) 7%, #0d1219), #0d1219 58%); }
 .reading-mode-heading { min-height: 62px; padding: 11px 14px 11px 16px; display: flex; align-items: center; justify-content: space-between; gap: 18px; }
@@ -1027,10 +1028,12 @@ html[data-reading-mode="professional"] .professional-only { display: block !impo
 @media (max-width: 700px) {
   .reading-mode-heading { align-items: flex-start; gap: 10px; }
   .reading-mode-heading > div:first-child { padding-top: 2px; }
-  .reading-mode-switch button { min-width: 50px; padding-left: 7px; padding-right: 7px; }
-  .beginner-glossary summary { padding-left: 10px; padding-right: 10px; }
+  .reading-mode-switch button { min-width: 50px; min-height: 40px; padding-left: 7px; padding-right: 7px; }
+  .beginner-glossary summary { padding-left: 10px; padding-right: 10px; font-size: .67rem; }
+  .beginner-glossary summary small { font-size: .61rem; }
   .beginner-glossary > div { grid-template-columns: repeat(2, minmax(0, 1fr)); padding-left: 10px; padding-right: 10px; }
-  .beginner-glossary > div span { align-items: flex-start; flex-direction: column; gap: 3px; }
+  .beginner-glossary > div span { align-items: flex-start; flex-direction: column; gap: 3px; font-size: .66rem; }
+  .beginner-glossary > div b { font-size: .68rem; }
   .data-alignment-alert, .data-alignment-alert.missing { grid-template-columns: 1fr; gap: 8px; padding: 11px 12px; }
   .overview-path-step { grid-template-columns: 18px 34px minmax(0, 1fr) auto; padding: 7px; }
   .metric-note-plain { grid-template-columns: 1fr; gap: 5px; }

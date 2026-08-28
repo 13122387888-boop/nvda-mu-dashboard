@@ -36,5 +36,5 @@ export function HistoricalPosition({ positions }: { positions: { rsi14: Position
 
 export function SnapshotLink({ symbol, window }: { symbol: string; window: OptionWindow }) {
   const query = window === "ALL" ? "" : `?window=${window}`;
-  return <Link className="snapshot-link" href={`/stocks/${symbol}/snapshot${query}`}>分享图片＋链接 ↗</Link>;
+  return <Link className="snapshot-link" href={`/stocks/${symbol}/snapshot${query}`}>生成分享海报 ↗</Link>;
 }

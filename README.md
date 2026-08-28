@@ -110,7 +110,7 @@ Cron runs incremental sync only. Bootstrap remains a one-time manual operation.
 
 ## 4. APIs and pages
 
-- `/` — configurable stock scanner with filters and attention-first sorting
+- `/` — configurable stock scanner with filters, trend sorting, and a trend/IV/Gamma structure map
 - `/stocks/<SYMBOL>` — EOD dashboard for each configured symbol
 - `/api/v1/stocks` — tracked-stock summaries
 - `/api/v1/stocks/<SYMBOL>/dashboard` — reusable dashboard payload
@@ -118,6 +118,10 @@ Cron runs incremental sync only. Bootstrap remains a one-time manual operation.
 - `/debug` — diagnostics only when `ENABLE_DEBUG_PAGE=true`
 
 Symbols outside `src/lib/stocks.ts` return 404. The public APIs do not expose raw full chains, provider proxying, database queries, CSV, or bulk exports.
+
+The dashboard also derives evidence-state summaries, 10-snapshot wall migration, expected-range and wall-continuation review, IV percentile/term structure, and 25-delta IV skew. IV skew filters zero/extreme IV, requires open interest, uses the liquid expiration closest to 30 days (preferably at least 7 days), and reports `25Δ Put IV − 25Δ Call IV`; it is a relative-pricing measure rather than a directional forecast.
+
+The compact event window currently uses a Longbridge finance-calendar snapshot verified on `2026-08-28`, plus the live option expiration already stored from OnclickMedia. Only MU had a confirmed future company earnings date in that snapshot. Other stocks display “date pending”, while ETFs explicitly display “no company earnings”. The source date remains visible in the UI and the calendar degrades to “update required” after the verified macro window ends; the Vercel runtime does not contain Longbridge credentials.
 
 ## 5. Validation
 
@@ -128,7 +132,7 @@ npm run test
 npm run build
 ```
 
-Tests cover MA20/50/200, the 0–100 trend score, Wilder RSI14, RV20, insufficient history, expected move and pricing fallback, put/call OI, max pain, option walls, ATM IV, empty/missing contracts, field/date/side/IV mapping, null handling, and invalid-number filtering.
+Tests cover MA20/50/200, the 0–100 trend score, Wilder RSI14, RV20, insufficient history, expected move and pricing fallback, put/call OI, max pain, option walls, ATM IV, 25-delta IV skew, empty/missing contracts, field/date/side/IV mapping, null handling, and invalid-number filtering.
 
 ## 6. Private GitHub repository
 

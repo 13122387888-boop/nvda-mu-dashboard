@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { connection } from "next/server";
 import { DataScope, KeyDistanceMap, ResearchOverview, ScenarioObservation } from "@/components/decision-support";
 import { DayOverDayStrip } from "@/components/day-over-day-change";
+import { EventWindow } from "@/components/event-window";
 import { OptionOiChart } from "@/components/option-oi-chart";
 import { OptionStructureHistory } from "@/components/option-structure-history";
 import { OptionWindowSelector } from "@/components/option-window-selector";
@@ -91,6 +92,7 @@ export default async function StockPage({ params, searchParams }: { params: Prom
         levels={{ callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, maxPain: dashboard.options.maxPain, expectedUpper: dashboard.options.expectedUpper, expectedLower: dashboard.options.expectedLower }}
       />
       <DayOverDayStrip change={dashboard.dayOverDay} currentStockDate={dashboard.stockDate} currentOptionsDate={dashboard.optionsDate} />
+      <EventWindow symbol={symbol} assetType={dashboard.assetType} optionsExpiration={dashboard.optionsExpiration} />
       <ModuleJumpNav symbol={symbol} close={dashboard.quote.close} dailyChangePct={dashboard.quote.dailyChangePct} trendScore={dashboard.trend.score} confidenceLabel={dashboard.trend.confidence.label} optionWindowLabel={dashboard.optionWindowLabel} />
       <DataScope stockDate={dashboard.stockDate} optionsDate={dashboard.optionsDate} expiration={dashboard.optionsExpiration} optionWindow={dashboard.optionWindowLabel} strikeCount={dashboard.optionOpenInterest.length} stockProviders={dashboard.stockProviders} />
 
@@ -106,7 +108,7 @@ export default async function StockPage({ params, searchParams }: { params: Prom
       <section className="section-block" id="module-momentum"><ModuleHeading index="02" kicker="动量与波动" title="动量与波动率" description="判断走势是否过热，并比较近期实际波动与期权隐含定价。" canAnswer="动量冷热与波动定价差异" cannotAnswer="下一交易日涨跌或期权绝对贵贱" accent="var(--info)" />
         <SectionPager label="动量与波动率视图" accent="var(--info)" tabs={[
           { id: "momentum-overview", label: "动量概览", content: <MomentumVisual rsi={dashboard.trend.rsi14} realizedVolatility={dashboard.trend.rv20} /> },
-          { id: "momentum-pricing", label: "波动定价", content: <><MomentumInformation rsi={dashboard.trend.rsi14} realizedVolatility={dashboard.trend.rv20} atmIv={dashboard.options.atmIv} /><IvStructureVisual currentIv={dashboard.options.atmIv} percentile={dashboard.options.ivPercentile} termStructure={dashboard.options.ivTermStructure} /></> },
+          { id: "momentum-pricing", label: "波动定价", content: <><MomentumInformation rsi={dashboard.trend.rsi14} realizedVolatility={dashboard.trend.rv20} atmIv={dashboard.options.atmIv} /><IvStructureVisual currentIv={dashboard.options.atmIv} percentile={dashboard.options.ivPercentile} termStructure={dashboard.options.ivTermStructure} skew={dashboard.options.ivSkew} /></> },
           { id: "momentum-history", label: "历史位置", content: <HistoricalPosition positions={dashboard.historicalPositions} /> },
           { id: "momentum-volume-profile", label: "成交分布", content: <VolumeProfileVisual profile={dashboard.volumeProfile} close={dashboard.quote.close} /> },
         ]} />
@@ -123,7 +125,7 @@ export default async function StockPage({ params, searchParams }: { params: Prom
             { id: "options-range", label: "预期区间", content: <div className="options-visual-grid"><ExpectedRangeVisual close={dashboard.quote.close} lower={dashboard.options.expectedLower} upper={dashboard.options.expectedUpper} expectedMove={dashboard.options.expectedMove} expectedMovePct={dashboard.options.expectedMovePct} maxPain={dashboard.options.maxPain} callWall={dashboard.options.callWall} putWall={dashboard.options.putWall} /><PutCallVisual ratio={dashboard.options.putCallOi} atmIv={dashboard.options.atmIv} /></div> },
             { id: "options-gamma", label: "Gamma", content: <GammaExposureVisual {...dashboard.options.gammaExposure} /> },
             { id: "options-oi", label: "未平仓量", content: <><WallStrengthVisual call={dashboard.options.wallProfiles.call} put={dashboard.options.wallProfiles.put} /><div className="chart-panel oi-panel"><div className="chart-title"><div><h3><MetricLabel metric="openInterest">按行权价分布的未平仓量</MetricLabel></h3><small>同一价格轴 · 看涨（Call）向上 / 看跌（Put）向下</small></div><span><i className="call" />看涨（Call） <i className="put" />看跌（Put）</span></div><OptionOiChart data={dashboard.optionOpenInterest} change={dashboard.optionOpenInterestChange} /></div></> },
-            { id: "options-history", label: "结构演变", content: <OptionStructureHistory history={dashboard.optionResearchHistory} /> },
+            { id: "options-history", label: "墙位迁移", content: <OptionStructureHistory history={dashboard.optionResearchHistory} /> },
           ]} />
         </>}
       </section>

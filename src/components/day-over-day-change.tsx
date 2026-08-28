@@ -37,7 +37,7 @@ export function dayOverDayItems(change: DayOverDayChange | null) {
         : gammaChanged
           ? `Gamma ${gammaShort[change.gamma.previous]}→${gammaShort[change.gamma.current]}`
           : `Gamma ${gammaShort[change.gamma.current]}未变`,
-      tone: change.gamma.current === "NEGATIVE" ? "negative" : change.gamma.current === "POSITIVE" ? "positive" : "neutral",
+      tone: change.gamma.current === "NEGATIVE" ? "gamma-amplify" : change.gamma.current === "POSITIVE" ? "gamma-stable" : "neutral",
     },
     {
       label: change.callWall.delta === null

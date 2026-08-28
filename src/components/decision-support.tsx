@@ -73,6 +73,27 @@ export function ResearchOverview({
     : `${nearest.delta > 0 ? "现价上方" : "现价下方"} ${percent(Math.abs(nearest.delta))}`;
   const gammaLabel = input.gammaRegime === "POSITIVE" ? "正 Gamma" : input.gammaRegime === "NEGATIVE" ? "负 Gamma" : input.gammaRegime === "NEUTRAL" ? "Gamma 中性" : "Gamma 暂无";
   const volumeLabel = relativeVolume === null ? "量能暂无" : relativeVolume >= 1.5 ? `成交活跃 ${relativeVolume.toFixed(1)}×` : relativeVolume <= 0.7 ? `成交偏淡 ${relativeVolume.toFixed(1)}×` : `成交常态 ${relativeVolume.toFixed(1)}×`;
+  const trendTone = brief.items[0].tone;
+  const volatilityState = brief.items[2].state;
+  const trendVerdict = trendScore === null ? "neutral"
+    : trendTone === "positive" ? (trendScore >= 55 ? "support" : "conflict")
+      : trendTone === "negative" ? (trendScore <= 45 ? "support" : "conflict")
+        : trendScore >= 45 && trendScore <= 55 ? "support" : "neutral";
+  const volumeVerdict = relativeVolume === null ? "neutral" : relativeVolume >= 1.5 ? "support" : relativeVolume <= 0.7 ? "conflict" : "neutral";
+  const gammaVerdict = input.gammaRegime === "UNAVAILABLE" || input.gammaRegime === "NEUTRAL" ? "neutral"
+    : trendTone === "neutral" ? (input.gammaRegime === "POSITIVE" ? "support" : "conflict")
+      : input.gammaRegime === "NEGATIVE" ? "support" : "neutral";
+  const ivVerdict = ivPercentile.percentile === null ? "neutral"
+    : volatilityState === "隐含波动较高" ? (ivPercentile.percentile >= 70 ? "support" : ivPercentile.percentile <= 30 ? "conflict" : "neutral")
+      : volatilityState === "隐含波动较低" ? (ivPercentile.percentile <= 30 ? "support" : ivPercentile.percentile >= 70 ? "conflict" : "neutral")
+        : ivPercentile.percentile >= 30 && ivPercentile.percentile <= 70 ? "support" : "neutral";
+  const evidence = [
+    { label: "趋势", value: `${trendScore ?? "—"}/100`, verdict: trendVerdict },
+    { label: "量能", value: volumeLabel, verdict: volumeVerdict },
+    { label: "Gamma", value: gammaLabel, verdict: gammaVerdict },
+    { label: "IV位置", value: ivPercentile.percentile === null ? ivPercentile.label : `${ivPercentile.percentile}%分位`, verdict: ivVerdict },
+  ] as const;
+  const verdictLabels = { support: "支持", neutral: "中性", conflict: "冲突" } as const;
   const observe = !nearest
     ? "先等待期权关键位数据恢复，再结合日线收盘确认结构。"
     : nearest.delta >= 0
@@ -84,7 +105,7 @@ export function ResearchOverview({
       <div className="overview-heading"><span>首屏研究摘要</span><b>日终数据 · {stockDate}</b></div>
       <div className="overview-decision-grid">
         <article className="decision-conclusion"><span>01 结论</span><h2 id="research-overview-title">{brief.summary}</h2><small>{confidence.label}可信度 · {confidence.reason}</small></article>
-        <article><span>02 依据</span><ul><li><b>趋势 {trendScore ?? "—"}/100</b></li><li><b>{volumeLabel}</b></li><li><b>{gammaLabel}</b></li><li><b>IV {ivPercentile.percentile === null ? ivPercentile.label : `${ivPercentile.percentile}%分位`}</b></li></ul></article>
+        <article className="decision-evidence"><span>02 依据</span><div className="evidence-grid">{evidence.map((item) => <div className={`evidence-item evidence-${item.verdict}`} key={item.label}><div><span>{item.label}</span><em>{verdictLabels[item.verdict]}</em></div><strong>{item.value}</strong></div>)}</div><small className="evidence-legend">支持＝与结论同向 · 冲突＝需要复核</small></article>
         <article><span>03 观察条件</span><strong>{nearest ? `${nearest.label} ${money(nearest.value)}` : "关键位暂无"}</strong><p>{observe}</p><small>{nearestPosition}</small></article>
       </div>
       <footer><span>回答当前结构与观察条件，不预测下一交易日必然涨跌。</span></footer>

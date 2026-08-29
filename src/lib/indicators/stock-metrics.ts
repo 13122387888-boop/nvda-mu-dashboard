@@ -14,13 +14,36 @@ export type TrendConfidence = {
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
-export function calculateTrendScore(input: {
+export type TrendScoreInput = {
   close: number;
   ma20: number | null;
   ma50: number | null;
   ma200: number | null;
   rsi14: number | null;
-}) {
+};
+
+export type TrendScoreBreakdown = {
+  base: number;
+  pricePosition: {
+    ma20: number;
+    ma50: number;
+    ma200: number;
+    total: number;
+  };
+  alignment: {
+    ma20VsMa50: number;
+    ma50VsMa200: number;
+    total: number;
+  };
+  momentum: {
+    rsi14: number | null;
+    contribution: number;
+  };
+  rawScore: number;
+  score: number;
+};
+
+export function calculateTrendScoreBreakdown(input: TrendScoreInput): TrendScoreBreakdown | null {
   const { close, ma20, ma50, ma200, rsi14 } = input;
   const availableAverages = [ma20, ma50, ma200].filter((value): value is number => value !== null && value > 0);
   if (close <= 0 || availableAverages.length < 2) return null;
@@ -29,19 +52,37 @@ export function calculateTrendScore(input: {
     average === null || average <= 0 ? 0 : clamp((close / average - 1) / scale, -1, 1) * weight;
   const compareAverages = (faster: number | null, slower: number | null) =>
     faster === null || slower === null || faster === slower ? 0 : faster > slower ? 5 : -5;
-  const alignment = compareAverages(ma20, ma50) + compareAverages(ma50, ma200);
-  const momentum = rsi14 === null ? 0 : clamp((rsi14 - 50) / 20, -1, 1) * 5;
+  const pricePosition = {
+    ma20: deviationContribution(ma20, 0.06, 15),
+    ma50: deviationContribution(ma50, 0.12, 15),
+    ma200: deviationContribution(ma200, 0.25, 20),
+    total: 0,
+  };
+  pricePosition.total = pricePosition.ma20 + pricePosition.ma50 + pricePosition.ma200;
+  const alignment = {
+    ma20VsMa50: compareAverages(ma20, ma50),
+    ma50VsMa200: compareAverages(ma50, ma200),
+    total: 0,
+  };
+  alignment.total = alignment.ma20VsMa50 + alignment.ma50VsMa200;
+  const momentum = {
+    rsi14,
+    contribution: rsi14 === null ? 0 : clamp((rsi14 - 50) / 20, -1, 1) * 5,
+  };
+  const rawScore = 50 + pricePosition.total + alignment.total + momentum.contribution;
 
-  return Math.round(clamp(
-    50
-      + deviationContribution(ma20, 0.06, 15)
-      + deviationContribution(ma50, 0.12, 15)
-      + deviationContribution(ma200, 0.25, 20)
-      + alignment
-      + momentum,
-    0,
-    100,
-  ));
+  return {
+    base: 50,
+    pricePosition,
+    alignment,
+    momentum,
+    rawScore,
+    score: Math.round(clamp(rawScore, 0, 100)),
+  };
+}
+
+export function calculateTrendScore(input: TrendScoreInput) {
+  return calculateTrendScoreBreakdown(input)?.score ?? null;
 }
 
 export function calculateTrendConfidence(input: {

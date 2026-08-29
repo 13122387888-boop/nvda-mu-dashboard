@@ -24,10 +24,11 @@ type ScanCard = {
   dataDate: string | null;
 };
 
-type Filter = "ALL" | "ETF" | "BULLISH" | "NEGATIVE_GAMMA";
+type Filter = "ALL" | "STOCK" | "ETF" | "BULLISH" | "NEGATIVE_GAMMA";
 
 const filters: Array<{ value: Filter; label: string }> = [
   { value: "ALL", label: "全部" },
+  { value: "STOCK", label: "个股" },
   { value: "ETF", label: "ETF" },
   { value: "BULLISH", label: "偏多" },
   { value: "NEGATIVE_GAMMA", label: "负 Gamma" },
@@ -47,7 +48,8 @@ function trendPresentation(score: number | null) {
 
 function StructureDistribution({ cards }: { cards: ScanCard[] }) {
   const width = 720;
-  const height = 300;
+  const dense = cards.length > 12;
+  const height = dense ? 340 : 300;
   const padding = { left: 52, right: 24, top: 30, bottom: 42 };
   const plotted = cards.filter((card) => card.trendScore !== null && card.ivPercentile.percentile !== null);
   const unavailable = cards.filter((card) => card.ivPercentile.percentile === null);
@@ -55,7 +57,9 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
   const y = (value: number) => padding.top + (100 - Math.max(0, Math.min(100, value))) / 100 * (height - padding.top - padding.bottom);
   const radius = (value: number | null) => {
     const scaled = Math.sqrt(Math.max(0.5, Math.min(2.5, value ?? 1)));
-    return 13 + (scaled - Math.sqrt(0.5)) / (Math.sqrt(2.5) - Math.sqrt(0.5)) * 9;
+    const minimum = dense ? 10 : 13;
+    const spread = dense ? 7 : 9;
+    return minimum + (scaled - Math.sqrt(0.5)) / (Math.sqrt(2.5) - Math.sqrt(0.5)) * spread;
   };
   const gammaClass = (regime: ScanCard["gammaRegime"]) => regime === "POSITIVE" ? "stable" : regime === "NEGATIVE" ? "amplify" : "neutral";
   const positioned = plotted.reduce<Array<{ card: ScanCard; anchorX: number; anchorY: number; cx: number; cy: number; r: number }>>((placed, card) => {
@@ -64,7 +68,7 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
     const r = radius(card.relativeVolume);
     let cx = anchorX;
     let cy = anchorY;
-    for (let attempt = 0; attempt < 36; attempt += 1) {
+    for (let attempt = 0; attempt < 64; attempt += 1) {
       const distance = attempt === 0 ? 0 : 11 + Math.ceil(attempt / 8) * 12;
       const angle = (attempt % 8) * Math.PI / 4;
       const candidateX = Math.max(padding.left + r, Math.min(width - padding.right - r, anchorX + Math.cos(angle) * distance));
@@ -77,6 +81,9 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
     }
     return [...placed, { card, anchorX, anchorY, cx, cy, r }];
   }, []);
+  const unavailableSummary = unavailable.length > 6
+    ? `${unavailable.slice(0, 6).map((card) => card.symbol).join("、")} 等 ${unavailable.length} 个`
+    : unavailable.map((card) => card.symbol).join("、");
 
   return (
     <section className="structure-distribution" aria-labelledby="structure-distribution-title">
@@ -100,35 +107,50 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
           })}
         </svg> : <div className="distribution-empty">IV 历史样本正在积累，暂时没有可比较点位。</div>}
       </div>
-      <footer><span>气泡面积＝相对成交量；IV 百分位使用最多 60 个日终期权快照；筛选同时作用于图和列表。</span>{unavailable.length > 0 && <span>IV 样本不足：{unavailable.map((card) => card.symbol).join("、")}</span>}</footer>
+      <footer><span>气泡面积＝相对成交量；IV 百分位使用最多 60 个日终期权快照；筛选与搜索同时作用于图和列表。</span>{unavailable.length > 0 && <span>IV 样本不足：{unavailableSummary}</span>}</footer>
     </section>
   );
 }
 
 export function StockScanner({ cards }: { cards: ScanCard[] }) {
   const [filter, setFilter] = useState<Filter>("ALL");
+  const [query, setQuery] = useState("");
   const [prefetchSymbol, setPrefetchSymbol] = useState<SupportedSymbol | null>(null);
   const bullishCount = cards.filter((card) => card.trendScore !== null && card.trendScore >= 60).length;
   const negativeGammaCount = cards.filter((card) => card.gammaRegime === "NEGATIVE").length;
+  const stockCount = cards.filter((card) => card.assetType === "STOCK").length;
   const etfCount = cards.filter((card) => card.assetType === "ETF").length;
+  const filterCounts: Record<Filter, number> = {
+    ALL: cards.length,
+    STOCK: stockCount,
+    ETF: etfCount,
+    BULLISH: bullishCount,
+    NEGATIVE_GAMMA: negativeGammaCount,
+  };
 
   const visibleCards = useMemo(() => {
+    const normalizedQuery = query.trim().toLocaleUpperCase();
     const filtered = cards.filter((card) => {
+      if (normalizedQuery && !`${card.symbol} ${card.name} ${card.shortName}`.toLocaleUpperCase().includes(normalizedQuery)) return false;
+      if (filter === "STOCK") return card.assetType === "STOCK";
       if (filter === "ETF") return card.assetType === "ETF";
       if (filter === "BULLISH") return card.trendScore !== null && card.trendScore >= 60;
       if (filter === "NEGATIVE_GAMMA") return card.gammaRegime === "NEGATIVE";
       return true;
     });
     return [...filtered].sort((a, b) => (b.trendScore ?? -1) - (a.trendScore ?? -1) || a.symbol.localeCompare(b.symbol));
-  }, [cards, filter]);
+  }, [cards, filter, query]);
 
   return (
     <section className="stock-scanner" aria-label="热门股票收盘扫描器">
       <div className="scanner-controls">
-        <div className="scanner-filters" aria-label="筛选股票">
-          {filters.map((item) => <button type="button" className={filter === item.value ? "active" : ""} aria-pressed={filter === item.value} onClick={() => setFilter(item.value)} key={item.value}>{item.label}</button>)}
+        <div className="scanner-filter-row">
+          <div className="scanner-filters" aria-label="筛选股票">
+            {filters.map((item) => <button type="button" className={filter === item.value ? "active" : ""} aria-pressed={filter === item.value} onClick={() => setFilter(item.value)} key={item.value}><span>{item.label}</span><b>{filterCounts[item.value]}</b></button>)}
+          </div>
+          <label className="scanner-search"><span>搜索</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="代码或名称" autoComplete="off" /></label>
         </div>
-        <div className="scanner-market-line"><span><b>{bullishCount}</b> 个趋势偏多</span><span><b>{negativeGammaCount}</b> 个负 Gamma</span><span><b>{etfCount}</b> 只 ETF</span><i>趋势分由高到低</i></div>
+        <div className="scanner-market-line"><span>显示 <b>{visibleCards.length}</b> / {cards.length}</span><span><b>{bullishCount}</b> 个趋势偏多</span><span><b>{negativeGammaCount}</b> 个负 Gamma</span><i>趋势分由高到低</i></div>
       </div>
 
       <StructureDistribution cards={visibleCards} />
@@ -157,7 +179,7 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
           </Link>
           );
         })}
-        {!visibleCards.length && <div className="scanner-empty">当前筛选下没有符合条件的股票。</div>}
+        {!visibleCards.length && <div className="scanner-empty">当前筛选或搜索下没有符合条件的标的。</div>}
       </div>
       <footer><span>趋势分：现价相对 20 / 50 / 200 日均线、均线排列与 RSI 综合量化；0 偏弱，100 偏强。</span><b>用于研究排序，不构成投资建议。</b></footer>
     </section>

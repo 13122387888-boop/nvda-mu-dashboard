@@ -9,6 +9,9 @@ import { STOCK_HISTORY_START_DATES, SUPPORTED_SYMBOLS } from "@/lib/stocks";
 
 const SYMBOLS: SupportedSymbol[] = SUPPORTED_SYMBOLS;
 const CREATE_BATCH_SIZE = 200;
+// Keep the cron comfortably below Vercel's five-minute limit as the watchlist
+// grows, while remaining gentle on the upstream provider.
+const SYNC_CONCURRENCY = 2;
 
 type SymbolSyncResult = {
   status: "SUCCESS" | "PARTIAL" | "FAILED";
@@ -229,10 +232,13 @@ export async function runSync(input: { triggerType: "MANUAL" | "CRON"; mode: "bo
   });
   const results = {} as Record<SupportedSymbol, SymbolSyncResult>;
 
-  for (const symbol of SYMBOLS) {
-    console.info(`[SYNC] ${symbol} (${input.mode})`);
-    results[symbol] = await syncSymbol(symbol, input.mode);
-    console.info(`[SYNC] ${symbol} status=${results[symbol].status} stock=${results[symbol].stockRows} options=${results[symbol].optionRows}`);
+  for (let index = 0; index < SYMBOLS.length; index += SYNC_CONCURRENCY) {
+    const batch = SYMBOLS.slice(index, index + SYNC_CONCURRENCY);
+    await Promise.all(batch.map(async (symbol) => {
+      console.info(`[SYNC] ${symbol} (${input.mode})`);
+      results[symbol] = await syncSymbol(symbol, input.mode);
+      console.info(`[SYNC] ${symbol} status=${results[symbol].status} stock=${results[symbol].stockRows} options=${results[symbol].optionRows}`);
+    }));
   }
 
   const statuses = Object.values(results).map((result) => result.status);

@@ -1,6 +1,6 @@
 # US Equity EOD Research Dashboard
 
-A product-validation dashboard for a configuration-driven US equity and ETF watchlist. The current 19-symbol pool covers **NVDA, MU, SNDK, MSFT, TSLA, DRAM, SKHY, TSM, AAPL, AVGO, ORCL, SOXX, QQQ, IBIT, GLD, XLF, XLE, XLU, and XLV**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
+A product-validation dashboard for a configuration-driven US equity and exchange-traded-product watchlist. The current 27-symbol pool covers **NVDA, MU, SNDK, MSFT, TSLA, DRAM, SKHY, TSM, AAPL, AVGO, ORCL, SOXX, QQQ, IBIT, GLD, XLF, XLE, XLU, XLV, MVRL, SPCX, CRCL, INTC, GOOG, AMD, IGV, and UVIX**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
 
 This is research software, not a real-time feed or investment-advice product.
 

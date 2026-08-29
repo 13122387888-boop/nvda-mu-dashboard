@@ -1,5 +1,6 @@
 import { addDays, dateToYmd } from "@/lib/dates";
 import { getPrisma } from "@/lib/db/prisma";
+import { Prisma, type StockMetrics } from "@/generated/prisma/client";
 import { unstable_cache } from "next/cache";
 import { bollingerBandsSeries, summarizeBollingerBands, type BollingerBandsSummary } from "@/lib/indicators/bollinger-bands";
 import { calculateGammaExposureProxy } from "@/lib/indicators/options/gamma-exposure";
@@ -196,57 +197,22 @@ export function classifyExpectedRange(
   };
 }
 
-async function loadDayOverDayChange(input: {
+function calculateDayOverDayChange(input: {
   symbol: SupportedSymbol;
   currentTradeDate: Date;
   currentOptionsTradeDate: Date | null;
+  previousOptionsTradeDate: Date | null;
   currentTrendScore: number | null;
   currentClose: number;
-  currentOptionRows?: OptionDatabaseRow[];
-  currentStockHistory?: StockDailyRecord[];
+  currentOptionRows: OptionDatabaseRow[];
+  previousOptionRows: OptionDatabaseRow[];
+  currentStockHistory: StockDailyRecord[];
 }) {
-  const prisma = getPrisma();
-  const history = (
-    input.currentStockHistory
-    ?? (await prisma.stockDaily.findMany({
-      where: { symbol: input.symbol, tradeDate: { lte: input.currentTradeDate } },
-      orderBy: { tradeDate: "desc" },
-      take: 210,
-    })).reverse().map((row) => ({
-      symbol: input.symbol,
-      tradeDate: dateToYmd(row.tradeDate),
-      open: Number(row.open),
-      high: Number(row.high),
-      low: Number(row.low),
-      close: Number(row.close),
-      adjustedClose: numberOrNull(row.adjustedClose),
-      volume: row.volume === null ? null : Number(row.volume),
-      provider: row.provider === "LONGBRIDGE" ? "LONGBRIDGE" as const : "ONCLICKMEDIA" as const,
-    }))
-  ).slice(-210);
+  const history = input.currentStockHistory.slice(-210);
   const previousStock = history.length > 1 ? calculateStockMetrics(history.slice(0, -1)) : null;
   const relativeVolume = latestRelativeVolume(history.map((row) => row.volume));
-
-  const currentOptionsDate = input.currentOptionsTradeDate;
-  const previousOptionDateRow = currentOptionsDate
-    ? await prisma.optionEod.findFirst({
-        where: { symbol: input.symbol, tradeDate: { lt: currentOptionsDate } },
-        orderBy: { tradeDate: "desc" },
-        select: { tradeDate: true },
-      })
-    : null;
-  const [currentOptionRows, previousOptionRows] = await Promise.all([
-    input.currentOptionRows
-      ? Promise.resolve(input.currentOptionRows)
-      : currentOptionsDate
-        ? prisma.optionEod.findMany({ where: { symbol: input.symbol, tradeDate: currentOptionsDate, expiration: { gt: currentOptionsDate } } })
-        : Promise.resolve([]),
-    previousOptionDateRow
-      ? prisma.optionEod.findMany({ where: { symbol: input.symbol, tradeDate: previousOptionDateRow.tradeDate, expiration: { gt: previousOptionDateRow.tradeDate } } })
-      : Promise.resolve([]),
-  ]);
-  const currentOptions = currentOptionRows.map(toOptionRecord);
-  const previousOptions = previousOptionRows.map(toOptionRecord);
+  const currentOptions = input.currentOptionRows.map(toOptionRecord);
+  const previousOptions = input.previousOptionRows.map(toOptionRecord);
   const previousClose = previousStock?.close ?? null;
   const currentGamma = calculateGammaExposureProxy(currentOptions.map((row) => ({
     optionType: row.optionType,
@@ -271,7 +237,7 @@ async function loadDayOverDayChange(input: {
 
   return {
     previousStockDate: previousStock?.tradeDate ?? null,
-    previousOptionsDate: previousOptionDateRow ? dateToYmd(previousOptionDateRow.tradeDate) : null,
+    previousOptionsDate: input.previousOptionsTradeDate ? dateToYmd(input.previousOptionsTradeDate) : null,
     trendScoreDelta: input.currentTrendScore === null || previousStock?.trendScore === null || previousStock?.trendScore === undefined
       ? null
       : input.currentTrendScore - previousStock.trendScore,
@@ -284,6 +250,62 @@ async function loadDayOverDayChange(input: {
     expectedRange,
     relativeVolume,
   };
+}
+
+async function loadDayOverDayChange(input: {
+  symbol: SupportedSymbol;
+  currentTradeDate: Date;
+  currentOptionsTradeDate: Date | null;
+  currentTrendScore: number | null;
+  currentClose: number;
+  currentOptionRows?: OptionDatabaseRow[];
+  currentStockHistory?: StockDailyRecord[];
+}) {
+  const prisma = getPrisma();
+  const history = input.currentStockHistory
+    ?? (await prisma.stockDaily.findMany({
+      where: { symbol: input.symbol, tradeDate: { lte: input.currentTradeDate } },
+      orderBy: { tradeDate: "desc" },
+      take: 210,
+    })).reverse().map((row) => ({
+      symbol: input.symbol,
+      tradeDate: dateToYmd(row.tradeDate),
+      open: Number(row.open),
+      high: Number(row.high),
+      low: Number(row.low),
+      close: Number(row.close),
+      adjustedClose: numberOrNull(row.adjustedClose),
+      volume: row.volume === null ? null : Number(row.volume),
+      provider: row.provider === "LONGBRIDGE" ? "LONGBRIDGE" as const : "ONCLICKMEDIA" as const,
+    }));
+  const previousOptionDateRow = input.currentOptionsTradeDate
+    ? await prisma.optionEod.findFirst({
+        where: { symbol: input.symbol, tradeDate: { lt: input.currentOptionsTradeDate } },
+        orderBy: { tradeDate: "desc" },
+        select: { tradeDate: true },
+      })
+    : null;
+  const [currentOptionRows, previousOptionRows] = await Promise.all([
+    input.currentOptionRows
+      ? Promise.resolve(input.currentOptionRows)
+      : input.currentOptionsTradeDate
+        ? prisma.optionEod.findMany({
+            where: { symbol: input.symbol, tradeDate: input.currentOptionsTradeDate, expiration: { gt: input.currentOptionsTradeDate } },
+          })
+        : Promise.resolve([]),
+    previousOptionDateRow
+      ? prisma.optionEod.findMany({
+          where: { symbol: input.symbol, tradeDate: previousOptionDateRow.tradeDate, expiration: { gt: previousOptionDateRow.tradeDate } },
+        })
+      : Promise.resolve([]),
+  ]);
+  return calculateDayOverDayChange({
+    ...input,
+    previousOptionsTradeDate: previousOptionDateRow?.tradeDate ?? null,
+    currentOptionRows,
+    previousOptionRows,
+    currentStockHistory: history,
+  });
 }
 
 function percentileRank(values: Array<number | null>, current: number | null, minimumSamples = 60) {
@@ -408,168 +430,205 @@ export function stockAttention(input: {
   return { label: "结构暂无明显异常", detail: "进入详情查看完整依据", score: 20, tone: "neutral" };
 }
 
-async function loadStockCards() {
-  const prisma = getPrisma();
-  return Promise.all(SUPPORTED_SYMBOLS.map(async (symbol) => {
-    const [metrics, ivHistory, stockHistoryRows] = await Promise.all([
-      prisma.stockMetrics.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" } }),
-      prisma.$queryRaw<Array<{ tradeDate: Date; atmIv: number }>>`
-        WITH recent_dates AS (
-          SELECT DISTINCT trade_date
-          FROM option_eod
-          WHERE symbol = ${symbol}
-          ORDER BY trade_date DESC
-          LIMIT 60
-        ), nearest_expiration AS (
-          SELECT options.trade_date, MIN(options.expiration) AS expiration
-          FROM option_eod options
-          JOIN recent_dates dates ON dates.trade_date = options.trade_date
-          WHERE options.symbol = ${symbol} AND options.expiration > options.trade_date
-          GROUP BY options.trade_date
-        ), closest_strike AS (
-          SELECT options.trade_date,
-            MIN(ABS(options.strike - COALESCE(stocks.adjusted_close, stocks.close))) AS distance
-          FROM option_eod options
-          JOIN nearest_expiration nearest ON nearest.trade_date = options.trade_date AND nearest.expiration = options.expiration
-          JOIN stock_daily stocks ON stocks.symbol = options.symbol AND stocks.trade_date = options.trade_date
-          WHERE options.symbol = ${symbol}
-            AND options.implied_volatility > 0
-            AND options.implied_volatility < 5
-          GROUP BY options.trade_date
-        )
-        SELECT options.trade_date AS "tradeDate", AVG(options.implied_volatility)::float8 AS "atmIv"
-        FROM option_eod options
-        JOIN nearest_expiration nearest ON nearest.trade_date = options.trade_date AND nearest.expiration = options.expiration
-        JOIN stock_daily stocks ON stocks.symbol = options.symbol AND stocks.trade_date = options.trade_date
-        JOIN closest_strike closest ON closest.trade_date = options.trade_date
-          AND ABS(options.strike - COALESCE(stocks.adjusted_close, stocks.close)) = closest.distance
-        WHERE options.symbol = ${symbol}
-          AND options.implied_volatility > 0
-          AND options.implied_volatility < 5
-        GROUP BY options.trade_date
-        ORDER BY options.trade_date ASC
-      `,
-      prisma.stockDaily.findMany({
-        where: { symbol },
-        orderBy: { tradeDate: "desc" },
-        take: 280,
-      }),
-    ]);
-    const alignedStockHistoryRows = metrics
-      ? stockHistoryRows.filter((row) => row.tradeDate <= metrics.tradeDate).slice(0, 271)
-      : stockHistoryRows;
-    const historyCount = alignedStockHistoryRows.length;
-    if (!metrics) {
-      return {
-        symbol,
-        name: STOCKS[symbol].name,
-        shortName: STOCKS[symbol].shortName,
-        accent: STOCKS[symbol].accent,
-        assetType: STOCKS[symbol].assetType,
-        close: null,
-        dailyChangePct: null,
-        trendScore: null,
-        trendConfidence: calculateTrendConfidence({ ma50: null, ma100: null, ma200: null, historyCount }),
-        marketStatus: "INSUFFICIENT_DATA" as const,
-        gammaRegime: "UNAVAILABLE" as const,
-        attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
-        dayOverDay: null,
-        relativeVolume: null,
-        rsi14: null,
-        bollinger: { ...EMPTY_BOLLINGER },
-        maStructure: "UNAVAILABLE" as const,
-        ivPercentile: { percentile: null, sampleSize: 0, label: "近0次·样本不足" },
-        dataDate: null,
-      };
-    }
-    const optionRows = metrics.optionsTradeDate
-      ? await prisma.optionEod.findMany({
-          where: { symbol, tradeDate: metrics.optionsTradeDate, expiration: { gt: metrics.optionsTradeDate } },
-        })
-      : [];
-    const close = Number(metrics.close);
-    const gammaRegime = calculateGammaExposureProxy(optionRows.map((row) => ({
-      optionType: row.optionType,
-      gamma: numberOrNull(row.gamma),
-      openInterest: row.openInterest === null ? null : Number(row.openInterest),
-      contractMultiplier: row.contractMultiplier,
-    })), close).regime;
-    const optionsDate = metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null;
-    const stockHistory: StockDailyRecord[] = [...alignedStockHistoryRows].reverse().map((row) => ({
-      symbol,
-      tradeDate: dateToYmd(row.tradeDate),
-      open: Number(row.open),
-      high: Number(row.high),
-      low: Number(row.low),
-      close: Number(row.close),
-      adjustedClose: numberOrNull(row.adjustedClose),
-      volume: row.volume === null ? null : Number(row.volume),
-      provider: row.provider === "LONGBRIDGE" ? "LONGBRIDGE" as const : "ONCLICKMEDIA" as const,
-    }));
-    const closes = stockHistory.map((row) => row.adjustedClose ?? row.close);
-    const ma50 = movingAverageSeries(closes, 50).at(-1) ?? null;
-    const ma100 = movingAverageSeries(closes, 100).at(-1) ?? null;
-    const ma200 = movingAverageSeries(closes, 200).at(-1) ?? null;
-    const rsi14 = wilderRsi(closes, 14);
-    const bollinger = summarizeBollingerBands(bollingerBandsSeries(closes, 20, 2));
-    const maStructure = classifyMaStructure({ close, ma50, ma100, ma200 });
-    const trendScore = calculateTrendScore({
-      close,
-      ma50,
-      ma100,
-      ma200,
-      rsi14,
-    });
-    const trendConfidence = calculateTrendConfidence({ ma50, ma100, ma200, historyCount });
-    const marketStatus = classifyMarketStatus({ close, ma50, ma100, ma200, rsi14 });
-    const ivRank = percentileRank(ivHistory.map((row) => Number(row.atmIv)), numberOrNull(metrics.atmIv), 1);
-    const ivPercentile = {
-      ...ivRank,
-      label: ivPercentileLabel(ivRank),
-    };
-    const dayOverDay = await loadDayOverDayChange({
-      symbol,
-      currentTradeDate: metrics.tradeDate,
-      currentOptionsTradeDate: metrics.optionsTradeDate,
-      currentTrendScore: trendScore,
-      currentClose: close,
-      currentOptionRows: optionRows,
-      currentStockHistory: stockHistory,
-    });
-    const attention = stockAttention({
-      close,
-      marketStatus,
-      optionsDate,
-      gammaRegime,
-      callWall: numberOrNull(metrics.callWall),
-      putWall: numberOrNull(metrics.putWall),
-      dayOverDay,
-    });
+function buildStockCard(input: {
+  symbol: SupportedSymbol;
+  metrics: StockMetrics | null;
+  stockHistoryRows: Array<{
+    tradeDate: Date;
+    close: number;
+    volume: number | null;
+    provider: string;
+  }>;
+  ivHistory: number[];
+  gammaRegime: "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
+}) {
+  const { symbol, metrics } = input;
+  const alignedStockHistoryRows = metrics
+    ? input.stockHistoryRows.filter((row) => row.tradeDate <= metrics.tradeDate).slice(0, 271)
+    : input.stockHistoryRows;
+  const historyCount = alignedStockHistoryRows.length;
+  if (!metrics) {
     return {
       symbol,
       name: STOCKS[symbol].name,
       shortName: STOCKS[symbol].shortName,
       accent: STOCKS[symbol].accent,
       assetType: STOCKS[symbol].assetType,
-      close,
-      dailyChangePct: numberOrNull(metrics.dailyChangePct),
-      trendScore,
-      trendConfidence,
-      marketStatus,
-      gammaRegime,
-      attention,
-      dayOverDay,
-      relativeVolume: dayOverDay.relativeVolume.relativeVolume,
-      rsi14,
-      bollinger,
-      maStructure,
-      ivPercentile,
-      dataDate: dateToYmd(metrics.tradeDate),
+      close: null,
+      dailyChangePct: null,
+      trendScore: null,
+      trendConfidence: calculateTrendConfidence({ ma50: null, ma100: null, ma200: null, historyCount }),
+      marketStatus: "INSUFFICIENT_DATA" as const,
+      gammaRegime: "UNAVAILABLE" as const,
+      attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
+      dayOverDay: null,
+      relativeVolume: null,
+      rsi14: null,
+      bollinger: { ...EMPTY_BOLLINGER },
+      maStructure: "UNAVAILABLE" as const,
+      ivPercentile: { percentile: null, sampleSize: 0, label: "近0次·样本不足" },
+      dataDate: null,
     };
+  }
+
+  const close = Number(metrics.close);
+  const optionsDate = metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null;
+  const stockHistory: StockDailyRecord[] = [...alignedStockHistoryRows].reverse().map((row) => ({
+    symbol,
+    tradeDate: dateToYmd(row.tradeDate),
+    open: row.close,
+    high: row.close,
+    low: row.close,
+    close: row.close,
+    adjustedClose: row.close,
+    volume: row.volume,
+    provider: row.provider === "LONGBRIDGE" ? "LONGBRIDGE" as const : "ONCLICKMEDIA" as const,
   }));
+  const closes = stockHistory.map((row) => row.adjustedClose ?? row.close);
+  const ma50 = movingAverageSeries(closes, 50).at(-1) ?? null;
+  const ma100 = movingAverageSeries(closes, 100).at(-1) ?? null;
+  const ma200 = movingAverageSeries(closes, 200).at(-1) ?? null;
+  const rsi14 = wilderRsi(closes, 14);
+  const bollinger = summarizeBollingerBands(bollingerBandsSeries(closes, 20, 2));
+  const maStructure = classifyMaStructure({ close, ma50, ma100, ma200 });
+  const trendScore = calculateTrendScore({ close, ma50, ma100, ma200, rsi14 });
+  const trendConfidence = calculateTrendConfidence({ ma50, ma100, ma200, historyCount });
+  const marketStatus = classifyMarketStatus({ close, ma50, ma100, ma200, rsi14 });
+  const ivRank = percentileRank(input.ivHistory, numberOrNull(metrics.atmIv), 1);
+  const ivPercentile = { ...ivRank, label: ivPercentileLabel(ivRank) };
+  const dayOverDay = calculateDayOverDayChange({
+    symbol,
+    currentTradeDate: metrics.tradeDate,
+    currentOptionsTradeDate: metrics.optionsTradeDate,
+    previousOptionsTradeDate: null,
+    currentTrendScore: trendScore,
+    currentClose: close,
+    currentOptionRows: [],
+    previousOptionRows: [],
+    currentStockHistory: stockHistory,
+  });
+  const attention = stockAttention({
+    close,
+    marketStatus,
+    optionsDate,
+    gammaRegime: input.gammaRegime,
+    callWall: numberOrNull(metrics.callWall),
+    putWall: numberOrNull(metrics.putWall),
+    dayOverDay,
+  });
+
+  return {
+    symbol,
+    name: STOCKS[symbol].name,
+    shortName: STOCKS[symbol].shortName,
+    accent: STOCKS[symbol].accent,
+    assetType: STOCKS[symbol].assetType,
+    close,
+    dailyChangePct: numberOrNull(metrics.dailyChangePct),
+    trendScore,
+    trendConfidence,
+    marketStatus,
+    gammaRegime: input.gammaRegime,
+    attention,
+    dayOverDay,
+    relativeVolume: dayOverDay.relativeVolume.relativeVolume,
+    rsi14,
+    bollinger,
+    maStructure,
+    ivPercentile,
+    dataDate: dateToYmd(metrics.tradeDate),
+  };
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v14"], { revalidate: 300, tags: ["stock-dashboard"] });
+async function loadStockCards() {
+  const prisma = getPrisma();
+  const metricsRows = await prisma.stockMetrics.findMany({
+    where: { symbol: { in: SUPPORTED_SYMBOLS } },
+    orderBy: [{ symbol: "asc" }, { tradeDate: "desc" }],
+  });
+  const stockRows = await prisma.$queryRaw<Array<{
+    symbol: string;
+    tradeDate: Date;
+    close: number;
+    volume: number | null;
+    provider: string;
+  }>>`
+    WITH ranked_history AS (
+      SELECT symbol, trade_date,
+        COALESCE(adjusted_close, close)::float8 AS close,
+        volume::float8 AS volume,
+        provider,
+        ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trade_date DESC) AS row_number
+      FROM stock_daily
+      WHERE symbol IN (${Prisma.join(SUPPORTED_SYMBOLS)})
+    )
+    SELECT symbol, trade_date AS "tradeDate", close, volume, provider
+    FROM ranked_history
+    WHERE row_number <= 271
+    ORDER BY symbol ASC, trade_date DESC
+  `;
+  const gammaRows = await prisma.$queryRaw<Array<{ symbol: string; callGamma: number; putGamma: number }>>`
+    WITH latest_metrics AS (
+      SELECT DISTINCT ON (symbol) symbol, options_trade_date
+      FROM stock_metrics
+      WHERE symbol IN (${Prisma.join(SUPPORTED_SYMBOLS)}) AND options_trade_date IS NOT NULL
+      ORDER BY symbol, trade_date DESC
+    )
+    SELECT options.symbol,
+      SUM(CASE WHEN options.option_type = 'CALL'
+        THEN options.gamma * options.open_interest * options.contract_multiplier ELSE 0 END)::float8 AS "callGamma",
+      SUM(CASE WHEN options.option_type = 'PUT'
+        THEN options.gamma * options.open_interest * options.contract_multiplier ELSE 0 END)::float8 AS "putGamma"
+    FROM option_eod options
+    JOIN latest_metrics metrics ON metrics.symbol = options.symbol
+      AND metrics.options_trade_date = options.trade_date
+    WHERE options.expiration > options.trade_date
+      AND options.gamma > 0
+      AND options.open_interest > 0
+      AND options.contract_multiplier > 0
+    GROUP BY options.symbol
+  `;
+  const metricsBySymbol = new Map<SupportedSymbol, StockMetrics>();
+  for (const row of metricsRows) {
+    const symbol = row.symbol as SupportedSymbol;
+    if (!metricsBySymbol.has(symbol)) metricsBySymbol.set(symbol, row);
+  }
+  const stockRowsBySymbol = new Map<SupportedSymbol, (typeof stockRows)[number][]>();
+  for (const row of stockRows) {
+    const symbol = row.symbol as SupportedSymbol;
+    const rows = stockRowsBySymbol.get(symbol) ?? [];
+    rows.push(row);
+    stockRowsBySymbol.set(symbol, rows);
+  }
+  const gammaRegimeBySymbol = new Map<SupportedSymbol, "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE">();
+  for (const row of gammaRows) {
+    gammaRegimeBySymbol.set(row.symbol as SupportedSymbol, calculateGammaExposureProxy([
+      { optionType: "CALL", gamma: Number(row.callGamma), openInterest: 1, contractMultiplier: 1 },
+      { optionType: "PUT", gamma: Number(row.putGamma), openInterest: 1, contractMultiplier: 1 },
+    ], 1).regime);
+  }
+  const ivHistoryBySymbol = new Map<SupportedSymbol, number[]>();
+  for (const row of metricsRows) {
+    if (row.atmIv === null) continue;
+    const symbol = row.symbol as SupportedSymbol;
+    const values = ivHistoryBySymbol.get(symbol) ?? [];
+    values.unshift(Number(row.atmIv));
+    ivHistoryBySymbol.set(symbol, values);
+  }
+
+  return SUPPORTED_SYMBOLS.map((symbol) => {
+    const metrics = metricsBySymbol.get(symbol) ?? null;
+    return buildStockCard({
+      symbol,
+      metrics,
+      stockHistoryRows: stockRowsBySymbol.get(symbol) ?? [],
+      ivHistory: ivHistoryBySymbol.get(symbol) ?? [],
+      gammaRegime: gammaRegimeBySymbol.get(symbol) ?? "UNAVAILABLE",
+    });
+  });
+}
+
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v18"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();
@@ -792,7 +851,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v15"],
+  ["stock-dashboard-bundle-v16"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

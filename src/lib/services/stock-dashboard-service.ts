@@ -1,6 +1,7 @@
 import { addDays, dateToYmd } from "@/lib/dates";
 import { getPrisma } from "@/lib/db/prisma";
 import { unstable_cache } from "next/cache";
+import { bollingerBandsSeries, summarizeBollingerBands, type BollingerBandsSummary } from "@/lib/indicators/bollinger-bands";
 import { calculateGammaExposureProxy } from "@/lib/indicators/options/gamma-exposure";
 import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics";
 import { calculateIvSkew } from "@/lib/indicators/options/iv-skew";
@@ -40,6 +41,41 @@ const EMPTY_VOLUME_PROFILE: VolumeProfile = {
   status: "UNAVAILABLE", bins: [], pointOfControl: null, valueAreaHigh: null, valueAreaLow: null,
   sampleStart: null, sampleEnd: null, sessionCount: 0, barCount: 0, barSize: "1分钟",
 };
+
+const EMPTY_BOLLINGER: BollingerBandsSummary = {
+  middle: null,
+  upper: null,
+  lower: null,
+  percentB: null,
+  bandwidth: null,
+  bandwidthPercentile: null,
+  state: "UNAVAILABLE",
+  sampleSize: 0,
+};
+
+export type MaStructure = "BULLISH" | "BULLISH_PULLBACK" | "BEARISH" | "MIXED" | "UNAVAILABLE";
+
+export function classifyMaStructure(input: {
+  close: number;
+  ma50: number | null;
+  ma100: number | null;
+  ma200: number | null;
+}): MaStructure {
+  const { close, ma50, ma100, ma200 } = input;
+  if (
+    !Number.isFinite(close)
+    || close <= 0
+    || ma50 === null
+    || ma100 === null
+    || ma200 === null
+  ) return "UNAVAILABLE";
+
+  if (ma50 > ma100 && ma100 > ma200) {
+    return close > ma50 ? "BULLISH" : close >= ma100 ? "BULLISH_PULLBACK" : "MIXED";
+  }
+  if (close < ma50 && ma50 < ma100 && ma100 < ma200) return "BEARISH";
+  return "MIXED";
+}
 
 async function loadVolumeProfile(symbol: SupportedSymbol, endDate: string) {
   try {
@@ -416,11 +452,11 @@ async function loadStockCards() {
       prisma.stockDaily.findMany({
         where: { symbol },
         orderBy: { tradeDate: "desc" },
-        take: 220,
+        take: 280,
       }),
     ]);
     const alignedStockHistoryRows = metrics
-      ? stockHistoryRows.filter((row) => row.tradeDate <= metrics.tradeDate).slice(0, 210)
+      ? stockHistoryRows.filter((row) => row.tradeDate <= metrics.tradeDate).slice(0, 271)
       : stockHistoryRows;
     const historyCount = alignedStockHistoryRows.length;
     if (!metrics) {
@@ -439,6 +475,9 @@ async function loadStockCards() {
         attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
         dayOverDay: null,
         relativeVolume: null,
+        rsi14: null,
+        bollinger: { ...EMPTY_BOLLINGER },
+        maStructure: "UNAVAILABLE" as const,
         ivPercentile: { percentile: null, sampleSize: 0, label: "近0次·样本不足" },
         dataDate: null,
       };
@@ -471,7 +510,9 @@ async function loadStockCards() {
     const ma50 = movingAverageSeries(closes, 50).at(-1) ?? null;
     const ma100 = movingAverageSeries(closes, 100).at(-1) ?? null;
     const ma200 = movingAverageSeries(closes, 200).at(-1) ?? null;
-    const rsi14 = numberOrNull(metrics.rsi14);
+    const rsi14 = wilderRsi(closes, 14);
+    const bollinger = summarizeBollingerBands(bollingerBandsSeries(closes, 20, 2));
+    const maStructure = classifyMaStructure({ close, ma50, ma100, ma200 });
     const trendScore = calculateTrendScore({
       close,
       ma50,
@@ -519,13 +560,16 @@ async function loadStockCards() {
       attention,
       dayOverDay,
       relativeVolume: dayOverDay.relativeVolume.relativeVolume,
+      rsi14,
+      bollinger,
+      maStructure,
       ivPercentile,
       dataDate: dateToYmd(metrics.tradeDate),
     };
   }));
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v13"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v14"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();
@@ -579,13 +623,16 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
   const ma50 = movingAverageSeries(closes, 50);
   const ma100 = movingAverageSeries(closes, 100);
   const ma200 = movingAverageSeries(closes, 200);
+  const rsi14Series = closes.map((_, index) => wilderRsi(closes.slice(0, index + 1), 14));
+  const bollingerSeries = bollingerBandsSeries(closes, 20, 2);
   const volumeSeries = relativeVolumeSeries(calculationHistory.map((row) => row.volume === null ? null : Number(row.volume)));
   const close = Number(metrics.close);
-  const currentRsi14 = numberOrNull(metrics.rsi14);
+  const currentRsi14 = rsi14Series.at(-1) ?? null;
   const currentRv20 = numberOrNull(metrics.rv20);
   const currentMa50 = ma50.at(-1) ?? null;
   const currentMa100 = ma100.at(-1) ?? null;
   const currentMa200 = ma200.at(-1) ?? null;
+  const currentBollinger = summarizeBollingerBands(bollingerSeries);
   const trendScore = calculateTrendScore({ close, ma50: currentMa50, ma100: currentMa100, ma200: currentMa200, rsi14: currentRsi14 });
   const marketStatus = classifyMarketStatus({ close, ma50: currentMa50, ma100: currentMa100, ma200: currentMa200, rsi14: currentRsi14 });
   const dayOverDay = await loadDayOverDayChange({
@@ -620,6 +667,12 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
       ma50: ma50[index],
       ma100: ma100[index],
       ma200: ma200[index],
+      rsi14: rsi14Series[index],
+      bollingerMiddle: bollingerSeries[index].middle,
+      bollingerUpper: bollingerSeries[index].upper,
+      bollingerLower: bollingerSeries[index].lower,
+      bollingerPercentB: bollingerSeries[index].percentB,
+      bollingerBandwidth: bollingerSeries[index].bandwidth,
       volume: volumeSeries[index].volume,
       volumeAverage20: volumeSeries[index].averageVolume,
       relativeVolume: volumeSeries[index].relativeVolume,
@@ -699,6 +752,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
         ma100: currentMa100,
         ma200: currentMa200,
         rsi14: currentRsi14,
+        bollinger: currentBollinger,
         rv20: currentRv20,
         relativeVolume: volumeSeries.at(-1)?.relativeVolume ?? null,
         averageVolume20: volumeSeries.at(-1)?.averageVolume ?? null,
@@ -738,7 +792,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v14"],
+  ["stock-dashboard-bundle-v15"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

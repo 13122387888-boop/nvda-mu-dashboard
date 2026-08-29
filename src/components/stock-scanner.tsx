@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { dayOverDayItems, type DayOverDayChange } from "@/components/day-over-day-change";
+import type { DayOverDayChange } from "@/components/day-over-day-change";
 import { money, percent } from "@/lib/format";
 import { isQuietStrength, isStructuralChange, sortCards } from "@/lib/home-scanner";
 import type { TrendConfidence } from "@/lib/indicators/stock-metrics";
@@ -19,6 +19,18 @@ type ScanCard = {
   trendScore: number | null;
   trendConfidence: TrendConfidence;
   relativeVolume: number | null;
+  rsi14: number | null;
+  maStructure: "BULLISH" | "BULLISH_PULLBACK" | "BEARISH" | "MIXED" | "UNAVAILABLE";
+  bollinger: {
+    middle: number | null;
+    upper: number | null;
+    lower: number | null;
+    percentB: number | null;
+    bandwidth: number | null;
+    bandwidthPercentile: number | null;
+    state: "SQUEEZE" | "WIDE" | "NORMAL" | "UNAVAILABLE";
+    sampleSize: number;
+  };
   ivPercentile: { percentile: number | null; sampleSize: number; label: string };
   marketStatus: string;
   gammaRegime: "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
@@ -28,7 +40,7 @@ type ScanCard = {
 };
 
 type AssetFilter = "ALL" | "STOCK" | "ETF";
-type SignalFilter = "BULLISH" | "NEGATIVE_GAMMA" | "QUIET_STRENGTH" | "STRUCTURAL_CHANGE";
+type SignalFilter = "BULLISH" | "VOLUME_CONFIRM" | "BOLL_SQUEEZE" | "NEGATIVE_GAMMA" | "QUIET_STRENGTH" | "STRUCTURAL_CHANGE";
 type DistributionMode = "STOCK" | "OPTION";
 
 const assetFilters: Array<{ value: AssetFilter; label: string }> = [
@@ -39,6 +51,8 @@ const assetFilters: Array<{ value: AssetFilter; label: string }> = [
 
 const signalFilters: Array<{ value: SignalFilter; label: string }> = [
   { value: "BULLISH", label: "偏多" },
+  { value: "VOLUME_CONFIRM", label: "量价共振" },
+  { value: "BOLL_SQUEEZE", label: "BOLL 收口" },
   { value: "NEGATIVE_GAMMA", label: "负 Gamma" },
   { value: "QUIET_STRENGTH", label: "安静强势" },
   { value: "STRUCTURAL_CHANGE", label: "结构突变" },
@@ -47,6 +61,7 @@ const signalFilters: Array<{ value: SignalFilter; label: string }> = [
 const gammaLabels = { POSITIVE: "正 Gamma", NEGATIVE: "负 Gamma", NEUTRAL: "Gamma 中性", UNAVAILABLE: "Gamma 暂无" } as const;
 const gammaShortLabels = { POSITIVE: "正 G", NEGATIVE: "负 G", NEUTRAL: "中性 G", UNAVAILABLE: "G 暂无" } as const;
 const gammaTone = { POSITIVE: "stable", NEGATIVE: "amplify", NEUTRAL: "neutral", UNAVAILABLE: "unavailable" } as const;
+const maStructureLabels = { BULLISH: "多头排列", BULLISH_PULLBACK: "强势回踩", BEARISH: "空头排列", MIXED: "均线混合", UNAVAILABLE: "均线暂无" } as const;
 
 function trendPresentation(score: number | null) {
   if (score === null) return { label: "数据不足", tone: "insufficient_data" };
@@ -65,17 +80,46 @@ function confidencePresentation(confidence: TrendConfidence) {
 
 function matchesResearchSignal(card: ScanCard, signal: SignalFilter) {
   if (signal === "BULLISH") return card.trendScore !== null && card.trendScore >= 60;
+  if (signal === "VOLUME_CONFIRM") {
+    if (card.relativeVolume === null || card.relativeVolume < 1.5 || card.dailyChangePct === null || card.trendScore === null) return false;
+    return (card.trendScore >= 60 && card.dailyChangePct > 0) || (card.trendScore <= 40 && card.dailyChangePct < 0);
+  }
+  if (signal === "BOLL_SQUEEZE") return card.bollinger.state === "SQUEEZE";
   if (signal === "NEGATIVE_GAMMA") return card.gammaRegime === "NEGATIVE";
   if (signal === "QUIET_STRENGTH") return isQuietStrength(card);
   return isStructuralChange(card);
 }
 
-function meaningfulChangeItems(change: DayOverDayChange | null) {
-  return dayOverDayItems(change).filter((item) =>
-    !item.label.includes("暂无") &&
-    !item.label.includes("未变") &&
-    item.label !== "处于昨日预期区间内",
-  );
+function rsiPresentation(value: number | null) {
+  if (value === null) return { label: "RSI 暂无", tone: "neutral" };
+  if (value >= 70) return { label: `RSI ${value.toFixed(0)}偏热`, tone: "rsi-hot" };
+  if (value >= 55) return { label: `RSI ${value.toFixed(0)}偏强`, tone: "rsi-strong" };
+  if (value <= 30) return { label: `RSI ${value.toFixed(0)}偏冷`, tone: "rsi-cold" };
+  if (value <= 45) return { label: `RSI ${value.toFixed(0)}偏弱`, tone: "rsi-weak" };
+  return { label: `RSI ${value.toFixed(0)}中性`, tone: "neutral" };
+}
+
+function bollingerPosition(card: ScanCard) {
+  const percentB = card.bollinger.percentB;
+  if (percentB === null) return "BOLL 暂无";
+  if (percentB >= 1) return "上轨外";
+  if (percentB >= 0.75) return "上轨附近";
+  if (percentB >= 0.5) return "中轨上方";
+  if (percentB >= 0.25) return "中轨下方";
+  if (percentB >= 0) return "下轨附近";
+  return "下轨外";
+}
+
+function technicalStatus(card: ScanCard) {
+  const rvol = card.relativeVolume;
+  const percentB = card.bollinger.percentB;
+  if (card.bollinger.state === "SQUEEZE") return { label: "BOLL 收口", tone: "neutral" as const };
+  if (card.maStructure === "BULLISH" && rvol !== null && rvol >= 1.5 && (card.dailyChangePct ?? 0) > 0) return { label: "放量多头", tone: "positive" as const };
+  if (card.maStructure === "BEARISH" && rvol !== null && rvol >= 1.5 && percentB !== null && percentB <= 0.25) return { label: "放量偏弱", tone: "negative" as const };
+  if ((card.maStructure === "BULLISH" || card.maStructure === "BULLISH_PULLBACK") && percentB !== null && percentB < 0.5) return { label: "强势回踩", tone: "warning" as const };
+  if (card.rsi14 !== null && card.rsi14 >= 70 && (rvol === null || rvol < 1.5)) return { label: "偏热待确认", tone: "warning" as const };
+  if (rvol !== null && rvol <= 0.7) return { label: "成交偏淡", tone: "neutral" as const };
+  return { label: card.attention.label, tone: card.attention.tone };
 }
 
 function StructureDistribution({ cards }: { cards: ScanCard[] }) {
@@ -86,23 +130,23 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
   const padding = { left: 52, right: 24, top: 30, bottom: 42 };
   const metricValue = (card: ScanCard) => mode === "OPTION"
     ? card.ivPercentile.percentile
-    : card.dayOverDay?.trendScoreDelta ?? null;
+    : card.bollinger.percentB === null ? null : card.bollinger.percentB * 100;
   const plotted = cards.filter((card) => card.trendScore !== null && metricValue(card) !== null);
   const unavailable = cards.filter((card) => card.trendScore === null || metricValue(card) === null);
   const dense = plotted.length > 12;
   const x = (value: number) => padding.left + Math.max(0, Math.min(100, value)) / 100 * (width - padding.left - padding.right);
-  const normalizedY = (value: number) => mode === "OPTION" ? value : ((Math.max(-30, Math.min(30, value)) + 30) / 60) * 100;
+  const normalizedY = (value: number) => mode === "OPTION" ? value : ((Math.max(-20, Math.min(120, value)) + 20) / 140) * 100;
   const y = (value: number) => padding.top + (100 - normalizedY(value)) / 100 * (height - padding.top - padding.bottom);
   const radius = (value: number | null) => {
-    const scaled = Math.sqrt(Math.max(0.5, Math.min(2.5, value ?? 1)));
+    if (value === null) return 4;
+    const scaled = Math.sqrt(Math.max(0.5, Math.min(2.5, value)));
     const minimum = dense ? 9 : 12;
     const spread = dense ? 6 : 8;
     return minimum + (scaled - Math.sqrt(0.5)) / (Math.sqrt(2.5) - Math.sqrt(0.5)) * spread;
   };
   const pointClass = (card: ScanCard) => {
     if (mode === "OPTION") return card.gammaRegime === "POSITIVE" ? "stable" : card.gammaRegime === "NEGATIVE" ? "amplify" : "neutral";
-    const delta = card.dayOverDay?.trendScoreDelta ?? 0;
-    return delta > 0 ? "improve" : delta < 0 ? "weaken" : "neutral";
+    return rsiPresentation(card.rsi14).tone;
   };
   const positioned = plotted.reduce<Array<{ card: ScanCard; anchorX: number; anchorY: number; cx: number; cy: number; r: number }>>((placed, card) => {
     const anchorX = x(card.trendScore!);
@@ -129,7 +173,7 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
     : unavailable.map((card) => card.symbol).join("、");
   const quadrant = mode === "OPTION"
     ? { topLeft: "趋势弱 · 波动偏贵", topRight: "强势但波动偏贵", bottomLeft: "弱势且波动平静", bottomRight: "安静强势", axis: "IV 初步位置", top: "100", bottom: "0" }
-    : { topLeft: "弱势但正在改善", topRight: "强势继续改善", bottomLeft: "弱势继续转差", bottomRight: "强势但正在转弱", axis: "趋势分日变化", top: "+30", bottom: "-30" };
+    : { topLeft: "弱势结构 · 上轨附近", topRight: "强势结构 · 上轨附近", bottomLeft: "弱势结构 · 下轨附近", bottomRight: "强势结构 · 回踩区域", axis: "BOLL %B", top: "上轨外", bottom: "下轨外" };
 
   return (
     <section className="structure-distribution" aria-labelledby="structure-distribution-title">
@@ -141,15 +185,15 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
             <button type="button" className={mode === "OPTION" ? "active" : ""} aria-pressed={mode === "OPTION"} onClick={() => { setMode("OPTION"); setSelectedSymbol(null); }}>期权观察</button>
           </div>
           <div className="distribution-legend">
-            {mode === "OPTION" ? <><span><i className="stable" />正 Gamma</span><span><i className="amplify" />负 Gamma</span><span><i className="neutral" />中性 / 暂无</span></> : <><span><i className="improve" />趋势改善</span><span><i className="weaken" />趋势转弱</span><span><i className="neutral" />变化不大</span></>}
+            {mode === "OPTION" ? <><span><i className="stable" />正 Gamma</span><span><i className="amplify" />负 Gamma</span><span><i className="neutral" />中性 / 暂无</span></> : <><span><i className="rsi-hot" />RSI偏热</span><span><i className="rsi-strong" />RSI偏强</span><span><i className="rsi-weak" />RSI偏弱</span><span><i className="rsi-cold" />RSI偏冷</span><span><i className="neutral" />中性</span></>}
           </div>
         </div>
       </div>
       <div className="distribution-chart">
-        {plotted.length ? <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={mode === "OPTION" ? "趋势分、IV位置、相对成交量和Gamma结构分布图" : "趋势分、趋势日变化和相对成交量分布图"}>
+        {plotted.length ? <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={mode === "OPTION" ? "趋势分、IV位置、相对成交量和Gamma结构分布图" : "趋势分、布林位置、RSI状态和相对成交量分布图"}>
           <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className="distribution-frame" />
           <line x1={x(50)} x2={x(50)} y1={padding.top} y2={height - padding.bottom} className="distribution-midline" />
-          <line x1={padding.left} x2={width - padding.right} y1={y(mode === "OPTION" ? 50 : 0)} y2={y(mode === "OPTION" ? 50 : 0)} className="distribution-midline" />
+          <line x1={padding.left} x2={width - padding.right} y1={y(50)} y2={y(50)} className="distribution-midline" />
           <text x={padding.left + 10} y={padding.top + 17}>{quadrant.topLeft}</text><text x={width - padding.right - 10} y={padding.top + 17} textAnchor="end">{quadrant.topRight}</text>
           <text x={padding.left + 10} y={height - padding.bottom - 10}>{quadrant.bottomLeft}</text><text x={width - padding.right - 10} y={height - padding.bottom - 10} textAnchor="end">{quadrant.bottomRight}</text>
           <text x={padding.left - 9} y={padding.top + 4} textAnchor="end">{quadrant.top}</text><text x={padding.left - 9} y={height - padding.bottom + 4} textAnchor="end">{quadrant.bottom}</text>
@@ -158,7 +202,8 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
           {positioned.map(({ card, anchorX, anchorY, cx, cy, r }) => {
             const displaced = Math.hypot(anchorX - cx, anchorY - cy) > 2;
             const isSelected = selectedSymbol === card.symbol;
-            const chartMetric = mode === "OPTION" ? `IV位置 ${card.ivPercentile.percentile}` : `趋势变化 ${card.dayOverDay?.trendScoreDelta}`;
+            const bollingerMetric = card.bollinger.percentB === null ? "暂无" : `${(card.bollinger.percentB * 100).toFixed(0)}%`;
+            const chartMetric = mode === "OPTION" ? `IV位置 ${card.ivPercentile.percentile}` : `BOLL位置 ${bollingerMetric}`;
             return <a
               href={`/stocks/${card.symbol}`}
               className={`distribution-point ${pointClass(card)}${isSelected ? " selected" : ""}`}
@@ -180,12 +225,12 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
       </div>
       <div className={`distribution-readout${selected ? " active" : ""}`} aria-live="polite">
         {selected ? <>
-          <div><b>{selected.symbol}</b><span>趋势 {selected.trendScore ?? "—"}</span>{mode === "OPTION" ? <span>{selected.ivPercentile.label}</span> : <span>较昨日 {selected.dayOverDay?.trendScoreDelta !== null && selected.dayOverDay?.trendScoreDelta !== undefined ? `${selected.dayOverDay.trendScoreDelta > 0 ? "+" : ""}${selected.dayOverDay.trendScoreDelta}` : "暂无"}</span>}<span>量能 {selected.relativeVolume?.toFixed(1) ?? "—"}×</span><span>{gammaLabels[selected.gammaRegime]}</span></div>
+          <div><b>{selected.symbol}</b><span>趋势 {selected.trendScore ?? "—"}</span>{mode === "OPTION" ? <span>{selected.ivPercentile.label}</span> : <><span>{maStructureLabels[selected.maStructure]}</span><span>{rsiPresentation(selected.rsi14).label}</span><span>{bollingerPosition(selected)}</span></>}<span>量能 {selected.relativeVolume?.toFixed(1) ?? "—"}×</span>{mode === "OPTION" && <span>{gammaLabels[selected.gammaRegime]}</span>}</div>
           <Link href={`/stocks/${selected.symbol}`}>查看详情 →</Link>
         </> : <span>点击气泡查看完整读数；再次点击同一气泡进入详情。</span>}
       </div>
       <footer>
-        <span>{mode === "OPTION" ? "气泡面积＝相对成交量；IV位置少于20个快照时属于初步结论。" : "气泡面积＝相对成交量；纵轴显示趋势分相较上一交易日的变化。"}</span>
+        <span>{mode === "OPTION" ? "气泡面积＝相对成交量；量能缺失时显示最小圆点；IV位置少于20个快照时属于初步结论。" : "横轴＝趋势分；纵轴＝BOLL位置；面积＝相对成交量（缺失时为最小圆点）；颜色＝RSI状态。"}</span>
         <span>已绘制 {plotted.length}/{cards.length}{unavailable.length > 0 ? ` · 未入图：${unavailableSummary}` : ""}</span>
       </footer>
     </section>
@@ -252,9 +297,7 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
           <div className="scanner-head" aria-hidden="true"><span>股票</span><span>收盘表现</span><span>趋势判断</span><span>期权结构</span><span>主要关注理由</span><span>日期</span><i /></div>
           {visibleCards.map((stock) => {
             const trend = trendPresentation(stock.trendScore);
-            const changes = meaningfulChangeItems(stock.dayOverDay);
-            const secondaryChanges = changes.slice(0, 2);
-            const hiddenChanges = Math.max(0, changes.length - secondaryChanges.length);
+            const technical = technicalStatus(stock);
             const showVolume = stock.relativeVolume !== null && (stock.relativeVolume >= 1.3 || stock.relativeVolume <= 0.7);
             return (
               <Link
@@ -278,11 +321,7 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
                 <div className={`scanner-gamma ${gammaTone[stock.gammaRegime]}`}><small>期权结构</small><b>{gammaLabels[stock.gammaRegime]}</b><em>{stock.ivPercentile.label}</em></div>
                 <div className="scanner-change">
                   <small>主要关注理由</small>
-                  <strong className={`scanner-primary-reason ${stock.attention.tone}`} title={stock.attention.detail}>{stock.attention.label}</strong>
-                  <div className="scanner-change-chips">
-                    {secondaryChanges.map((item) => <span className={`day-change-chip ${item.tone}`} key={item.label}>{item.label}</span>)}
-                    {hiddenChanges > 0 && <span className="day-change-chip more">+{hiddenChanges}</span>}
-                  </div>
+                  <strong className={`scanner-primary-reason ${technical.tone}`} title={`${maStructureLabels[stock.maStructure]} · ${rsiPresentation(stock.rsi14).label} · ${bollingerPosition(stock)} · ${stock.attention.detail}`}>{technical.label}</strong>
                 </div>
                 <time dateTime={stock.dataDate ?? undefined}>{stock.dataDate ?? "—"}</time>
                 <i className="scanner-arrow" aria-hidden="true">→</i>
@@ -292,7 +331,7 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
           {!visibleCards.length && <div className="scanner-empty">当前筛选或搜索下没有符合条件的标的。</div>}
         </div>
       </div>
-      <footer><span>“安静强势”＝趋势分≥70、IV位置≤30且趋势样本至少中等；“结构突变”用于发现变化，不判断涨跌。</span><b>用于研究排序，不构成投资建议。</b></footer>
+      <footer><span>MA判断方向，RSI与BOLL描述短线状态，成交量只用于确认参与度；触及上下轨不等同于买卖信号。</span><b>用于研究排序，不构成投资建议。</b></footer>
     </section>
   );
 }

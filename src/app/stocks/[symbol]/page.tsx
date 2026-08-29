@@ -68,7 +68,20 @@ export default async function StockPage({ params, searchParams }: { params: Prom
 
   const change = dashboard.quote.dailyChangePct;
   const staleBusinessDays = businessDaysSince(dashboard.stockDate);
-  const decisionInput = { marketStatus: dashboard.quote.marketStatus, rsi14: dashboard.trend.rsi14, rv20: dashboard.trend.rv20, atmIv: dashboard.options.atmIv, gammaRegime: dashboard.options.gammaExposure.regime };
+  const decisionInput = {
+    marketStatus: dashboard.quote.marketStatus,
+    rsi14: dashboard.trend.rsi14,
+    relativeVolume: dashboard.trend.relativeVolume,
+    dailyChangePct: dashboard.quote.dailyChangePct,
+    bollinger: {
+      percentB: dashboard.trend.bollinger.percentB,
+      bandwidthPercentile: dashboard.trend.bollinger.bandwidthPercentile,
+      state: dashboard.trend.bollinger.state,
+    },
+    rv20: dashboard.trend.rv20,
+    atmIv: dashboard.options.atmIv,
+    gammaRegime: dashboard.options.gammaExposure.regime,
+  };
   const keyLevels = { callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, maxPain: dashboard.options.maxPain, expectedUpper: dashboard.options.expectedUpper, expectedLower: dashboard.options.expectedLower };
   return (
     <main className="shell stock-detail">
@@ -84,8 +97,6 @@ export default async function StockPage({ params, searchParams }: { params: Prom
         trendScore={dashboard.trend.score}
         confidence={dashboard.trend.confidence}
         stockDate={dashboard.stockDate}
-        relativeVolume={dashboard.trend.relativeVolume}
-        ivPercentile={dashboard.options.ivPercentile}
         levels={keyLevels}
       />
       <DayOverDayStrip change={dashboard.dayOverDay} currentStockDate={dashboard.stockDate} currentOptionsDate={dashboard.optionsSnapshotDate} />
@@ -101,9 +112,9 @@ export default async function StockPage({ params, searchParams }: { params: Prom
         ]} />
       </section>
 
-      <section className="section-block" id="module-momentum"><ModuleHeading index="02" kicker="动量与波动" title="动量与波动率" description="判断走势是否过热，并比较近期实际波动与期权隐含定价。" canAnswer="动量冷热与波动定价差异" cannotAnswer="下一交易日涨跌或期权绝对贵贱" accent="var(--info)" />
+      <section className="section-block" id="module-momentum"><ModuleHeading index="02" kicker="技术强弱" title="短线状态与波动定价" description="用 RSI 与 BOLL 判断价格状态，再比较近期实际波动与期权隐含定价。" canAnswer="短线冷热、BOLL位置与波动定价差异" cannotAnswer="下一交易日涨跌或期权绝对贵贱" accent="var(--info)" />
         <SectionPager label="动量与波动率视图" accent="var(--info)" tabs={[
-          { id: "momentum-overview", label: "动量概览", content: <MomentumVisual rsi={dashboard.trend.rsi14} realizedVolatility={dashboard.trend.rv20} /> },
+          { id: "momentum-overview", label: "技术强弱", content: <MomentumVisual rsi={dashboard.trend.rsi14} realizedVolatility={dashboard.trend.rv20} close={dashboard.quote.close} bollinger={dashboard.trend.bollinger} /> },
           { id: "momentum-pricing", label: "波动定价", content: <><MomentumInformation rsi={dashboard.trend.rsi14} realizedVolatility={dashboard.trend.rv20} atmIv={dashboard.options.atmIv} /><IvStructureVisual currentIv={dashboard.options.atmIv} percentile={dashboard.options.ivPercentile} termStructure={dashboard.options.ivTermStructure} skew={dashboard.options.ivSkew} /></> },
           { id: "momentum-history", label: "历史位置", content: <HistoricalPosition positions={dashboard.historicalPositions} /> },
           { id: "momentum-volume-profile", label: "成交分布", content: <VolumeProfileVisual profile={dashboard.volumeProfile} close={dashboard.quote.close} /> },

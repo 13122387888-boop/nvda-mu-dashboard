@@ -24,7 +24,7 @@ export async function GET(request: Request) {
 
   try {
     const result = await runSync({ triggerType: "CRON", mode: "incremental" });
-    revalidateTag("stock-dashboard", "max");
+    revalidateTag("stock-dashboard", { expire: 0 });
     return Response.json(result);
   } catch {
     return Response.json({ error: "Sync failed" }, { status: 500 });

@@ -11,11 +11,11 @@ function positionCopy(percentileValue: number | null, sampleSize: number) {
   return "处于过去一年中间区域";
 }
 
-export function HistoricalPosition({ positions }: { positions: { rsi14: Position; rv20: Position; ma20Deviation: Position } }) {
+export function HistoricalPosition({ positions }: { positions: { rsi14: Position; rv20: Position; ma50Deviation: Position } }) {
   const items = [
     { label: "RSI 14", display: number(positions.rsi14.value, 1), data: positions.rsi14 },
     { label: "RV20", display: percent(positions.rv20.value), data: positions.rv20 },
-    { label: "相对20日均线", display: percent(positions.ma20Deviation.value), data: positions.ma20Deviation },
+    { label: "相对50日均线", display: percent(positions.ma50Deviation.value), data: positions.ma50Deviation },
   ];
   return (
     <section className="historical-position" aria-labelledby="historical-position-title">

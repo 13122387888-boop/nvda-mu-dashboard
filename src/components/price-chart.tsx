@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, LineStyle, type Time } from "lightweight-charts";
 
-type Point = { date: string; open: number; high: number; low: number; close: number; ma20: number | null; ma50: number | null; ma200: number | null; volume: number | null; volumeAverage20: number | null; relativeVolume: number | null };
+type Point = { date: string; open: number; high: number; low: number; close: number; ma50: number | null; ma100: number | null; ma200: number | null; volume: number | null; volumeAverage20: number | null; relativeVolume: number | null };
 type WallLevel = { strike: number | null; strength: number | null; persistenceSnapshots: number };
 type PriceLevels = { maxPain: number | null; callWall: WallLevel; putWall: WallLevel; expectedUpper: number | null; expectedLower: number | null };
 
@@ -62,8 +62,8 @@ export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevel
     }
 
     const series = [
-      { key: "ma20" as const, color: "#57d68d", width: 2 as const },
-      { key: "ma50" as const, color: "#4f8cff", width: 2 as const },
+      { key: "ma50" as const, color: "#57d68d", width: 2 as const },
+      { key: "ma100" as const, color: "#4f8cff", width: 2 as const },
       { key: "ma200" as const, color: "#f0b45c", width: 2 as const },
     ];
     if (showAverages) {
@@ -109,7 +109,7 @@ export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevel
       {activePoint && <div className="price-point-readout" aria-live="polite">
         <b>{activePoint.date}</b>
         <span>开 {activePoint.open.toFixed(2)}</span><span>高 {activePoint.high.toFixed(2)}</span><span>低 {activePoint.low.toFixed(2)}</span><span>收 {activePoint.close.toFixed(2)}</span>
-        <small>MA20 {activePoint.ma20?.toFixed(2) ?? "—"} · MA50 {activePoint.ma50?.toFixed(2) ?? "—"} · MA200 {activePoint.ma200?.toFixed(2) ?? "—"} · 量 {compactVolume(activePoint.volume)} · RVOL {activePoint.relativeVolume?.toFixed(2) ?? "—"}×</small>
+        <small>MA50 {activePoint.ma50?.toFixed(2) ?? "—"} · MA100 {activePoint.ma100?.toFixed(2) ?? "—"} · MA200 {activePoint.ma200?.toFixed(2) ?? "—"} · 量 {compactVolume(activePoint.volume)} · RVOL {activePoint.relativeVolume?.toFixed(2) ?? "—"}×</small>
       </div>}
       <div ref={container} className="price-chart" aria-label="近六个月日K、移动平均线与期权关键价位图，点按可读取精确数值" />
     </div>

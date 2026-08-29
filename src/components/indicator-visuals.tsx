@@ -56,23 +56,23 @@ export function GammaExposureVisual({
 
 export function TrendDeviation({
   close,
-  ma20,
   ma50,
+  ma100,
   ma200,
   rsi14,
 }: {
   close: number;
-  ma20: NullableNumber;
   ma50: NullableNumber;
+  ma100: NullableNumber;
   ma200: NullableNumber;
   rsi14: NullableNumber;
 }) {
-  const breakdown = calculateTrendScoreBreakdown({ close, ma20, ma50, ma200, rsi14 });
+  const breakdown = calculateTrendScoreBreakdown({ close, ma50, ma100, ma200, rsi14 });
   const optionalContribution = (source: NullableNumber, contribution: number) => source === null ? "暂无" : signedContribution(contribution);
   const levels = [
     { label: "现价", value: close, className: "spot" },
-    { label: "20日均线", value: ma20, className: "ma20" },
     { label: "50日均线", value: ma50, className: "ma50" },
+    { label: "100日均线", value: ma100, className: "ma100" },
     { label: "200日均线", value: ma200, className: "ma200" },
   ].filter((level): level is { label: string; value: number; className: string } => level.value !== null && Number.isFinite(level.value));
   const ordered = [...levels].sort((a, b) => a.value - b.value);
@@ -96,7 +96,7 @@ export function TrendDeviation({
         <small>同一价格轴 · 直接比较</small>
       </div>
       <div className="level-map-scroll">
-        <div className="level-map" role="img" aria-label="现价与20日、50日、200日均线价格位置图">
+        <div className="level-map" role="img" aria-label="现价与50日、100日、200日均线价格位置图">
           <i className="level-axis" />
           {ordered.map((level, index) => (
             <div className={`level-pin ${level.className} tier-${index % 4}`} style={{ "--level-left": position(level.value) } as CSSProperties} key={level.label}>
@@ -120,8 +120,8 @@ export function TrendDeviation({
           </summary>
           <div className="trend-score-parts">
             <article className="neutral"><span>基础分</span><strong>50.0</strong><small>中性起点</small></article>
-            <article className={contributionTone(breakdown.pricePosition.total)}><span>价格位置</span><strong>{signedContribution(breakdown.pricePosition.total)}</strong><small>20日 {optionalContribution(ma20, breakdown.pricePosition.ma20)} · 50日 {optionalContribution(ma50, breakdown.pricePosition.ma50)} · 200日 {optionalContribution(ma200, breakdown.pricePosition.ma200)}</small></article>
-            <article className={contributionTone(breakdown.alignment.total)}><span>均线排列</span><strong>{signedContribution(breakdown.alignment.total)}</strong><small>20/50日 {ma20 === null || ma50 === null ? "暂无" : signedContribution(breakdown.alignment.ma20VsMa50)} · 50/200日 {ma50 === null || ma200 === null ? "暂无" : signedContribution(breakdown.alignment.ma50VsMa200)}</small></article>
+            <article className={contributionTone(breakdown.pricePosition.total)}><span>价格位置</span><strong>{signedContribution(breakdown.pricePosition.total)}</strong><small>50日 {optionalContribution(ma50, breakdown.pricePosition.ma50)} · 100日 {optionalContribution(ma100, breakdown.pricePosition.ma100)} · 200日 {optionalContribution(ma200, breakdown.pricePosition.ma200)}</small></article>
+            <article className={contributionTone(breakdown.alignment.total)}><span>均线排列</span><strong>{signedContribution(breakdown.alignment.total)}</strong><small>50/100日 {ma50 === null || ma100 === null ? "暂无" : signedContribution(breakdown.alignment.ma50VsMa100)} · 100/200日 {ma100 === null || ma200 === null ? "暂无" : signedContribution(breakdown.alignment.ma100VsMa200)}</small></article>
             <article className={contributionTone(breakdown.momentum.contribution)}><span>RSI 动量</span><strong>{rsi14 === null ? "未参与" : signedContribution(breakdown.momentum.contribution)}</strong><small>RSI14 {rsi14 === null ? "暂无" : number(breakdown.momentum.rsi14, 1)}</small></article>
           </div>
           <footer>基础 50 {signedContribution(breakdown.pricePosition.total)} {signedContribution(breakdown.alignment.total)} {signedContribution(breakdown.momentum.contribution)} ＝ {breakdown.rawScore.toFixed(2)}；最终限制在 0–100 并四舍五入。它描述趋势结构，不是上涨概率。</footer>

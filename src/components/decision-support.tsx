@@ -49,7 +49,7 @@ export function DataScope({
       <details>
         <summary>数据口径与限制</summary>
         <div className="scope-grid">
-          <div><b>股票行情</b><p>采用调整后日线数据计算涨跌、MA20/50/200、RSI14 与 RV20。当前数据源：{stockProviders.map((provider) => provider === "ONCLICKMEDIA" ? "OnclickMedia" : provider === "LONGBRIDGE" ? "长桥" : provider).join(" + ")}。页面不是盘中实时行情。</p></div>
+          <div><b>股票行情</b><p>采用调整后日线数据计算涨跌、MA50/100/200、RSI14 与 RV20。当前数据源：{stockProviders.map((provider) => provider === "ONCLICKMEDIA" ? "OnclickMedia" : provider === "LONGBRIDGE" ? "长桥" : provider).join(" + ")}。页面不是盘中实时行情。</p></div>
           <div><b>期权范围</b><p>使用最新可取得的日终期权链。看涨墙、看跌墙、未平仓量比（Put/Call）、OI 与 Gamma 在“{optionWindow}”内汇总；当前覆盖{strikeCount ? `${strikeCount} 个近价行权价` : "暂无可用行权价"}。</p></div>
           <div><b>模型指标</b><p>预期区间、平值隐含波动率（ATM IV）与最大痛点采用所选范围内最近到期日 {expiration ?? "暂无"}；Gamma 统一按看涨（Call）为正、看跌（Put）为负计算结构代理。</p></div>
           <div><b>使用边界</b><p>规则观察未纳入盘中变化、财报新闻、交易成本、个人持仓及风险承受能力，仅用于研究展示。</p></div>

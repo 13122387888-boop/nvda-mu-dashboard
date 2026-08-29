@@ -132,7 +132,7 @@ npm run test
 npm run build
 ```
 
-Tests cover MA20/50/200, the 0–100 trend score, Wilder RSI14, RV20, insufficient history, expected move and pricing fallback, put/call OI, max pain, option walls, ATM IV, 25-delta IV skew, empty/missing contracts, field/date/side/IV mapping, null handling, and invalid-number filtering.
+Tests cover MA50/100/200 (while retaining the legacy MA20 sync field), the 0–100 trend score, Wilder RSI14, RV20, insufficient history, expected move and pricing fallback, put/call OI, max pain, option walls, ATM IV, 25-delta IV skew, empty/missing contracts, field/date/side/IV mapping, null handling, and invalid-number filtering.
 
 ## 6. Private GitHub repository
 

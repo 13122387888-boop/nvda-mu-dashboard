@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 import { money, number, percent } from "@/lib/format";
 import { MetricLabel } from "@/components/metric-help";
+import { calculateTrendScoreBreakdown } from "@/lib/indicators/stock-metrics";
 
 type NullableNumber = number | null;
 type GammaRegime = "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
@@ -11,6 +12,9 @@ function compactMoney(value: number) {
   const formatter = new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 });
   return `${value < 0 ? "-" : ""}$${formatter.format(Math.abs(value))}`;
 }
+
+const signedContribution = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
+const contributionTone = (value: number) => value > 0.05 ? "positive" : value < -0.05 ? "negative" : "neutral";
 
 export function GammaExposureVisual({
   callGamma,
@@ -55,12 +59,16 @@ export function TrendDeviation({
   ma20,
   ma50,
   ma200,
+  rsi14,
 }: {
   close: number;
   ma20: NullableNumber;
   ma50: NullableNumber;
   ma200: NullableNumber;
+  rsi14: NullableNumber;
 }) {
+  const breakdown = calculateTrendScoreBreakdown({ close, ma20, ma50, ma200, rsi14 });
+  const optionalContribution = (source: NullableNumber, contribution: number) => source === null ? "暂无" : signedContribution(contribution);
   const levels = [
     { label: "现价", value: close, className: "spot" },
     { label: "20日均线", value: ma20, className: "ma20" },
@@ -104,6 +112,21 @@ export function TrendDeviation({
           </div>
         ))}
       </div>
+      {breakdown ? (
+        <details className="trend-score-breakdown">
+          <summary>
+            <div><span>趋势分构成</span><small>点击展开计算过程</small></div>
+            <strong>{breakdown.score}<small>/100</small></strong>
+          </summary>
+          <div className="trend-score-parts">
+            <article className="neutral"><span>基础分</span><strong>50.0</strong><small>中性起点</small></article>
+            <article className={contributionTone(breakdown.pricePosition.total)}><span>价格位置</span><strong>{signedContribution(breakdown.pricePosition.total)}</strong><small>20日 {optionalContribution(ma20, breakdown.pricePosition.ma20)} · 50日 {optionalContribution(ma50, breakdown.pricePosition.ma50)} · 200日 {optionalContribution(ma200, breakdown.pricePosition.ma200)}</small></article>
+            <article className={contributionTone(breakdown.alignment.total)}><span>均线排列</span><strong>{signedContribution(breakdown.alignment.total)}</strong><small>20/50日 {ma20 === null || ma50 === null ? "暂无" : signedContribution(breakdown.alignment.ma20VsMa50)} · 50/200日 {ma50 === null || ma200 === null ? "暂无" : signedContribution(breakdown.alignment.ma50VsMa200)}</small></article>
+            <article className={contributionTone(breakdown.momentum.contribution)}><span>RSI 动量</span><strong>{rsi14 === null ? "未参与" : signedContribution(breakdown.momentum.contribution)}</strong><small>RSI14 {rsi14 === null ? "暂无" : number(breakdown.momentum.rsi14, 1)}</small></article>
+          </div>
+          <footer>基础 50 {signedContribution(breakdown.pricePosition.total)} {signedContribution(breakdown.alignment.total)} {signedContribution(breakdown.momentum.contribution)} ＝ {breakdown.rawScore.toFixed(2)}；最终限制在 0–100 并四舍五入。它描述趋势结构，不是上涨概率。</footer>
+        </details>
+      ) : <div className="trend-score-unavailable"><b>趋势分暂不可算</b><span>至少需要两条完整均线；新上市标的会随历史数据积累自动出现分数。</span></div>}
     </div>
   );
 }

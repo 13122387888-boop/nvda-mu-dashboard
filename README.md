@@ -1,6 +1,6 @@
 # US Equity EOD Research Dashboard
 
-A product-validation dashboard for a configuration-driven US equity and ETF watchlist. The current pool covers **NVDA, MU, SNDK, MSFT, TSLA, DRAM, SOXX, QQQ, and IBIT**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
+A product-validation dashboard for a configuration-driven US equity and ETF watchlist. The current 19-symbol pool covers **NVDA, MU, SNDK, MSFT, TSLA, DRAM, SKHY, TSM, AAPL, AVGO, ORCL, SOXX, QQQ, IBIT, GLD, XLF, XLE, XLU, and XLV**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
 
 This is research software, not a real-time feed or investment-advice product.
 
@@ -98,7 +98,7 @@ npm run backfill:longbridge -- all 2026-01-01 2026-12-31
 npm run sync:data
 ```
 
-The backfill inserts missing dates, refreshes the most recent eight sessions, and recalculates the latest metrics. It is not part of the Vercel runtime or Cron job.
+The backfill inserts missing dates, refreshes the most recent eight sessions, and recalculates the latest metrics. `SKHY` began US trading in July 2026, so its long-term averages and trend score remain unavailable until enough genuine sessions accumulate. The backfill is not part of the Vercel runtime or Cron job.
 
 Vercel Cron calls `GET /api/cron/sync` at `05:30 UTC` from Tuesday through Saturday, after the preceding US trading day's extended-hours session and calendar rollover. It requires:
 

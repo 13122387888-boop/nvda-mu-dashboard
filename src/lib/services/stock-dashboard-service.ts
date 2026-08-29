@@ -397,7 +397,7 @@ async function loadStockCards() {
   }));
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v8"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v9"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();
@@ -603,7 +603,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v9"],
+  ["stock-dashboard-bundle-v10"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

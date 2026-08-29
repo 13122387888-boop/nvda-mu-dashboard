@@ -7,12 +7,12 @@ import { calculateIvSkew } from "@/lib/indicators/options/iv-skew";
 import { addWallPersistence, buildOptionResearchHistory, calculateIvPercentile, calculateIvTermStructure, calculateOiChange, calculateWallProfile } from "@/lib/indicators/options/option-research";
 import { putCallOpenInterest } from "@/lib/indicators/options/put-call-ratio";
 import { movingAverageSeries } from "@/lib/indicators/moving-average";
-import { calculateStockMetrics, calculateTrendConfidence, calculateTrendScore } from "@/lib/indicators/stock-metrics";
+import { calculateStockMetrics, calculateTrendConfidence, calculateTrendScore, classifyMarketStatus } from "@/lib/indicators/stock-metrics";
 import { realizedVolatility } from "@/lib/indicators/realized-volatility";
 import { latestRelativeVolume, relativeVolumeSeries } from "@/lib/indicators/relative-volume";
 import { calculateVolumeProfile, type VolumeProfile } from "@/lib/indicators/volume-profile";
 import { wilderRsi } from "@/lib/indicators/rsi";
-import type { OptionContractRecord, SupportedSymbol } from "@/lib/providers/types";
+import type { OptionContractRecord, StockDailyRecord, SupportedSymbol } from "@/lib/providers/types";
 import { OnclickMediaProvider } from "@/lib/providers/onclickmedia/onclickmedia-provider";
 import { STOCKS, SUPPORTED_SYMBOLS } from "@/lib/stocks";
 
@@ -167,24 +167,27 @@ async function loadDayOverDayChange(input: {
   currentTrendScore: number | null;
   currentClose: number;
   currentOptionRows?: OptionDatabaseRow[];
+  currentStockHistory?: StockDailyRecord[];
 }) {
   const prisma = getPrisma();
-  const historyRows = await prisma.stockDaily.findMany({
-    where: { symbol: input.symbol, tradeDate: { lte: input.currentTradeDate } },
-    orderBy: { tradeDate: "desc" },
-    take: 210,
-  });
-  const history = historyRows.reverse().map((row) => ({
-    symbol: input.symbol,
-    tradeDate: dateToYmd(row.tradeDate),
-    open: Number(row.open),
-    high: Number(row.high),
-    low: Number(row.low),
-    close: Number(row.close),
-    adjustedClose: numberOrNull(row.adjustedClose),
-    volume: row.volume === null ? null : Number(row.volume),
-    provider: row.provider === "LONGBRIDGE" ? "LONGBRIDGE" as const : "ONCLICKMEDIA" as const,
-  }));
+  const history = (
+    input.currentStockHistory
+    ?? (await prisma.stockDaily.findMany({
+      where: { symbol: input.symbol, tradeDate: { lte: input.currentTradeDate } },
+      orderBy: { tradeDate: "desc" },
+      take: 210,
+    })).reverse().map((row) => ({
+      symbol: input.symbol,
+      tradeDate: dateToYmd(row.tradeDate),
+      open: Number(row.open),
+      high: Number(row.high),
+      low: Number(row.low),
+      close: Number(row.close),
+      adjustedClose: numberOrNull(row.adjustedClose),
+      volume: row.volume === null ? null : Number(row.volume),
+      provider: row.provider === "LONGBRIDGE" ? "LONGBRIDGE" as const : "ONCLICKMEDIA" as const,
+    }))
+  ).slice(-210);
   const previousStock = history.length > 1 ? calculateStockMetrics(history.slice(0, -1)) : null;
   const relativeVolume = latestRelativeVolume(history.map((row) => row.volume));
 
@@ -262,16 +265,16 @@ export function ivPercentileLabel(input: { percentile: number | null; sampleSize
   return `近${input.sampleSize}次·${input.sampleSize < 20 ? "初步" : ""}${position}`;
 }
 
-function buildHistoricalPositions(closes: number[], current: { rsi14: number | null; rv20: number | null; ma20: number | null }) {
+function buildHistoricalPositions(closes: number[], current: { rsi14: number | null; rv20: number | null; ma50: number | null }) {
   const rsiSeries = closes.map((_, index) => wilderRsi(closes.slice(0, index + 1), 14));
   const rvSeries = closes.map((_, index) => realizedVolatility(closes.slice(0, index + 1), 20));
-  const ma20Series = movingAverageSeries(closes, 20);
-  const deviationSeries = closes.map((close, index) => ma20Series[index] === null ? null : (close / ma20Series[index]! - 1));
-  const currentDeviation = current.ma20 === null || current.ma20 === 0 ? null : closes.at(-1)! / current.ma20 - 1;
+  const ma50Series = movingAverageSeries(closes, 50);
+  const deviationSeries = closes.map((close, index) => ma50Series[index] === null ? null : (close / ma50Series[index]! - 1));
+  const currentDeviation = current.ma50 === null || current.ma50 === 0 ? null : closes.at(-1)! / current.ma50 - 1;
   return {
     rsi14: { value: current.rsi14, ...percentileRank(rsiSeries, current.rsi14) },
     rv20: { value: current.rv20, ...percentileRank(rvSeries, current.rv20) },
-    ma20Deviation: { value: currentDeviation, ...percentileRank(deviationSeries, currentDeviation) },
+    ma50Deviation: { value: currentDeviation, ...percentileRank(deviationSeries, currentDeviation) },
   };
 }
 
@@ -372,7 +375,7 @@ export function stockAttention(input: {
 async function loadStockCards() {
   const prisma = getPrisma();
   return Promise.all(SUPPORTED_SYMBOLS.map(async (symbol) => {
-    const [metrics, ivHistory, historyCount] = await Promise.all([
+    const [metrics, ivHistory, stockHistoryRows] = await Promise.all([
       prisma.stockMetrics.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" } }),
       prisma.$queryRaw<Array<{ tradeDate: Date; atmIv: number }>>`
         WITH recent_dates AS (
@@ -410,8 +413,16 @@ async function loadStockCards() {
         GROUP BY options.trade_date
         ORDER BY options.trade_date ASC
       `,
-      prisma.stockDaily.count({ where: { symbol } }),
+      prisma.stockDaily.findMany({
+        where: { symbol },
+        orderBy: { tradeDate: "desc" },
+        take: 220,
+      }),
     ]);
+    const alignedStockHistoryRows = metrics
+      ? stockHistoryRows.filter((row) => row.tradeDate <= metrics.tradeDate).slice(0, 210)
+      : stockHistoryRows;
+    const historyCount = alignedStockHistoryRows.length;
     if (!metrics) {
       return {
         symbol,
@@ -422,7 +433,7 @@ async function loadStockCards() {
         close: null,
         dailyChangePct: null,
         trendScore: null,
-        trendConfidence: calculateTrendConfidence({ ma20: null, ma50: null, ma200: null, historyCount }),
+        trendConfidence: calculateTrendConfidence({ ma50: null, ma100: null, ma200: null, historyCount }),
         marketStatus: "INSUFFICIENT_DATA" as const,
         gammaRegime: "UNAVAILABLE" as const,
         attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
@@ -445,17 +456,31 @@ async function loadStockCards() {
       contractMultiplier: row.contractMultiplier,
     })), close).regime;
     const optionsDate = metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null;
-    const ma20 = numberOrNull(metrics.ma20);
-    const ma50 = numberOrNull(metrics.ma50);
-    const ma200 = numberOrNull(metrics.ma200);
+    const stockHistory: StockDailyRecord[] = [...alignedStockHistoryRows].reverse().map((row) => ({
+      symbol,
+      tradeDate: dateToYmd(row.tradeDate),
+      open: Number(row.open),
+      high: Number(row.high),
+      low: Number(row.low),
+      close: Number(row.close),
+      adjustedClose: numberOrNull(row.adjustedClose),
+      volume: row.volume === null ? null : Number(row.volume),
+      provider: row.provider === "LONGBRIDGE" ? "LONGBRIDGE" as const : "ONCLICKMEDIA" as const,
+    }));
+    const closes = stockHistory.map((row) => row.adjustedClose ?? row.close);
+    const ma50 = movingAverageSeries(closes, 50).at(-1) ?? null;
+    const ma100 = movingAverageSeries(closes, 100).at(-1) ?? null;
+    const ma200 = movingAverageSeries(closes, 200).at(-1) ?? null;
+    const rsi14 = numberOrNull(metrics.rsi14);
     const trendScore = calculateTrendScore({
       close,
-      ma20,
       ma50,
+      ma100,
       ma200,
-      rsi14: numberOrNull(metrics.rsi14),
+      rsi14,
     });
-    const trendConfidence = calculateTrendConfidence({ ma20, ma50, ma200, historyCount });
+    const trendConfidence = calculateTrendConfidence({ ma50, ma100, ma200, historyCount });
+    const marketStatus = classifyMarketStatus({ close, ma50, ma100, ma200, rsi14 });
     const ivRank = percentileRank(ivHistory.map((row) => Number(row.atmIv)), numberOrNull(metrics.atmIv), 1);
     const ivPercentile = {
       ...ivRank,
@@ -468,10 +493,11 @@ async function loadStockCards() {
       currentTrendScore: trendScore,
       currentClose: close,
       currentOptionRows: optionRows,
+      currentStockHistory: stockHistory,
     });
     const attention = stockAttention({
       close,
-      marketStatus: metrics.marketStatus,
+      marketStatus,
       optionsDate,
       gammaRegime,
       callWall: numberOrNull(metrics.callWall),
@@ -488,7 +514,7 @@ async function loadStockCards() {
       dailyChangePct: numberOrNull(metrics.dailyChangePct),
       trendScore,
       trendConfidence,
-      marketStatus: metrics.marketStatus,
+      marketStatus,
       gammaRegime,
       attention,
       dayOverDay,
@@ -499,7 +525,7 @@ async function loadStockCards() {
   }));
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v11"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v13"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();
@@ -514,7 +540,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
   const calculationStartDate = addDays(dateToYmd(metrics.tradeDate), -450);
   const [calculationHistory, allOptionRows, optionDateGroups, volumeProfile] = await Promise.all([
     prisma.stockDaily.findMany({
-      where: { symbol, tradeDate: { gte: new Date(`${calculationStartDate}T00:00:00.000Z`) } },
+      where: { symbol, tradeDate: { gte: new Date(`${calculationStartDate}T00:00:00.000Z`), lte: metrics.tradeDate } },
       orderBy: { tradeDate: "asc" },
     }),
     metrics.optionsTradeDate
@@ -539,49 +565,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
       })
     : [];
   const closes = calculationHistory.map((row) => Number(row.adjustedClose ?? row.close));
-  const ma20 = movingAverageSeries(closes, 20);
-  const ma50 = movingAverageSeries(closes, 50);
-  const ma200 = movingAverageSeries(closes, 200);
-  const volumeSeries = relativeVolumeSeries(calculationHistory.map((row) => row.volume === null ? null : Number(row.volume)));
-  const close = Number(metrics.close);
-  const currentRsi14 = numberOrNull(metrics.rsi14);
-  const currentRv20 = numberOrNull(metrics.rv20);
-  const currentMa20 = numberOrNull(metrics.ma20);
-  const currentMa50 = numberOrNull(metrics.ma50);
-  const currentMa200 = numberOrNull(metrics.ma200);
-  const trendScore = calculateTrendScore({ close, ma20: currentMa20, ma50: currentMa50, ma200: currentMa200, rsi14: currentRsi14 });
-  const dayOverDay = await loadDayOverDayChange({
-    symbol,
-    currentTradeDate: metrics.tradeDate,
-    currentOptionsTradeDate: metrics.optionsTradeDate,
-    currentTrendScore: trendScore,
-    currentClose: close,
-    currentOptionRows: allOptionRows,
-  });
-  const trendConfidence = calculateTrendConfidence({ ma20: currentMa20, ma50: currentMa50, ma200: currentMa200, historyCount: calculationHistory.length });
-  const historicalPositions = buildHistoricalPositions(closes, { rsi14: currentRsi14, rv20: currentRv20, ma20: currentMa20 });
-  const optionWindows = Object.keys(OPTION_WINDOW_LIMITS) as OptionWindow[];
-  const optionWindowCounts = Object.fromEntries(optionWindows.map((window) => {
-    const limit = OPTION_WINDOW_LIMITS[window];
-    const count = limit === null || !metrics.optionsTradeDate
-      ? allOptionRows.length
-      : allOptionRows.filter((row) => remainingDays(metrics.optionsTradeDate!, row.expiration) <= limit).length;
-    return [window, count];
-  })) as Record<OptionWindow, number>;
-  const priceHistory = calculationHistory.map((row, index) => ({
-    date: dateToYmd(row.tradeDate),
-    open: Number(row.open),
-    high: Number(row.high),
-    low: Number(row.low),
-    close: Number(row.close),
-    ma20: ma20[index],
-    ma50: ma50[index],
-    ma200: ma200[index],
-    volume: volumeSeries[index].volume,
-    volumeAverage20: volumeSeries[index].averageVolume,
-    relativeVolume: volumeSeries[index].relativeVolume,
-  })).filter((point) => point.date >= chartStartDate);
-  const stockResearchHistory = calculationHistory.map((row) => ({
+  const stockResearchHistory: StockDailyRecord[] = calculationHistory.map((row) => ({
     symbol,
     tradeDate: dateToYmd(row.tradeDate),
     open: Number(row.open),
@@ -592,6 +576,55 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
     volume: row.volume === null ? null : Number(row.volume),
     provider: row.provider === "LONGBRIDGE" ? "LONGBRIDGE" as const : "ONCLICKMEDIA" as const,
   }));
+  const ma50 = movingAverageSeries(closes, 50);
+  const ma100 = movingAverageSeries(closes, 100);
+  const ma200 = movingAverageSeries(closes, 200);
+  const volumeSeries = relativeVolumeSeries(calculationHistory.map((row) => row.volume === null ? null : Number(row.volume)));
+  const close = Number(metrics.close);
+  const currentRsi14 = numberOrNull(metrics.rsi14);
+  const currentRv20 = numberOrNull(metrics.rv20);
+  const currentMa50 = ma50.at(-1) ?? null;
+  const currentMa100 = ma100.at(-1) ?? null;
+  const currentMa200 = ma200.at(-1) ?? null;
+  const trendScore = calculateTrendScore({ close, ma50: currentMa50, ma100: currentMa100, ma200: currentMa200, rsi14: currentRsi14 });
+  const marketStatus = classifyMarketStatus({ close, ma50: currentMa50, ma100: currentMa100, ma200: currentMa200, rsi14: currentRsi14 });
+  const dayOverDay = await loadDayOverDayChange({
+    symbol,
+    currentTradeDate: metrics.tradeDate,
+    currentOptionsTradeDate: metrics.optionsTradeDate,
+    currentTrendScore: trendScore,
+    currentClose: close,
+    currentOptionRows: allOptionRows,
+    currentStockHistory: stockResearchHistory,
+  });
+  const trendConfidence = calculateTrendConfidence({ ma50: currentMa50, ma100: currentMa100, ma200: currentMa200, historyCount: calculationHistory.length });
+  const historicalPositions = buildHistoricalPositions(closes, { rsi14: currentRsi14, rv20: currentRv20, ma50: currentMa50 });
+  const optionWindows = Object.keys(OPTION_WINDOW_LIMITS) as OptionWindow[];
+  const optionWindowCounts = Object.fromEntries(optionWindows.map((window) => {
+    const limit = OPTION_WINDOW_LIMITS[window];
+    const count = limit === null || !metrics.optionsTradeDate
+      ? allOptionRows.length
+      : allOptionRows.filter((row) => remainingDays(metrics.optionsTradeDate!, row.expiration) <= limit).length;
+    return [window, count];
+  })) as Record<OptionWindow, number>;
+  const priceHistory = calculationHistory.map((row, index) => {
+    const rawClose = Number(row.close);
+    const adjustedClose = numberOrNull(row.adjustedClose);
+    const adjustmentFactor = adjustedClose !== null && rawClose > 0 ? adjustedClose / rawClose : 1;
+    return {
+      date: dateToYmd(row.tradeDate),
+      open: Number(row.open) * adjustmentFactor,
+      high: Number(row.high) * adjustmentFactor,
+      low: Number(row.low) * adjustmentFactor,
+      close: adjustedClose ?? rawClose,
+      ma50: ma50[index],
+      ma100: ma100[index],
+      ma200: ma200[index],
+      volume: volumeSeries[index].volume,
+      volumeAverage20: volumeSeries[index].averageVolume,
+      relativeVolume: volumeSeries[index].relativeVolume,
+    };
+  }).filter((point) => point.date >= chartStartDate);
   const optionSnapshots = optionHistoryDates
     .map((tradeDate) => ({
       tradeDate: dateToYmd(tradeDate),
@@ -659,11 +692,11 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
         close,
         dailyChange: numberOrNull(metrics.dailyChange),
         dailyChangePct: numberOrNull(metrics.dailyChangePct),
-        marketStatus: metrics.marketStatus,
+        marketStatus,
       },
       trend: {
-        ma20: currentMa20,
         ma50: currentMa50,
+        ma100: currentMa100,
         ma200: currentMa200,
         rsi14: currentRsi14,
         rv20: currentRv20,
@@ -705,7 +738,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v12"],
+  ["stock-dashboard-bundle-v14"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

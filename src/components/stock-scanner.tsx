@@ -29,8 +29,6 @@ type ScanCard = {
 
 type AssetFilter = "ALL" | "STOCK" | "ETF";
 type SignalFilter = "BULLISH" | "NEGATIVE_GAMMA" | "QUIET_STRENGTH" | "STRUCTURAL_CHANGE";
-type SortMode = "TREND" | "CHANGE";
-type MobileView = "LIST" | "MAP";
 type DistributionMode = "STOCK" | "OPTION";
 
 const assetFilters: Array<{ value: AssetFilter; label: string }> = [
@@ -197,8 +195,6 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
 export function StockScanner({ cards }: { cards: ScanCard[] }) {
   const [assetFilter, setAssetFilter] = useState<AssetFilter>("ALL");
   const [activeSignals, setActiveSignals] = useState<SignalFilter[]>([]);
-  const [sortMode, setSortMode] = useState<SortMode>("TREND");
-  const [mobileView, setMobileView] = useState<MobileView>("LIST");
   const [query, setQuery] = useState("");
   const [prefetchSymbol, setPrefetchSymbol] = useState<SupportedSymbol | null>(null);
 
@@ -217,8 +213,8 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
       if (activeSignals.length && !activeSignals.some((signal) => matchesResearchSignal(card, signal))) return false;
       return true;
     });
-    return sortCards(filtered, sortMode) as ScanCard[];
-  }, [activeSignals, assetFilter, cards, query, sortMode]);
+    return sortCards(filtered, "TREND") as ScanCard[];
+  }, [activeSignals, assetFilter, cards, query]);
 
   const toggleSignal = (signal: SignalFilter) => {
     setActiveSignals((current) => current.includes(signal) ? current.filter((item) => item !== signal) : [...current, signal]);
@@ -245,20 +241,13 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
           <label className="scanner-search"><span>搜索</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="代码或名称" autoComplete="off" /></label>
         </div>
         <div className="scanner-toolbar">
-          <div className="scanner-sort" aria-label="首页排序">
-            <span>排序</span>
-            <button type="button" className={sortMode === "TREND" ? "active" : ""} aria-pressed={sortMode === "TREND"} onClick={() => setSortMode("TREND")}>趋势强度</button>
-            <button type="button" className={sortMode === "CHANGE" ? "active" : ""} aria-pressed={sortMode === "CHANGE"} onClick={() => setSortMode("CHANGE")}>今日变化</button>
-          </div>
-          <div className="scanner-view-switch" aria-label="手机端首页视图">
-            <button type="button" className={mobileView === "LIST" ? "active" : ""} aria-pressed={mobileView === "LIST"} onClick={() => setMobileView("LIST")}>清单</button>
-            <button type="button" className={mobileView === "MAP" ? "active" : ""} aria-pressed={mobileView === "MAP"} onClick={() => setMobileView("MAP")}>分布图</button>
-          </div>
-          <div className="scanner-market-line"><span>显示 <b>{visibleCards.length}</b> / {cards.length}</span><i>{sortMode === "TREND" ? "趋势分由高到低" : "结构变化由大到小"}</i></div>
+          <div className="scanner-market-line"><span>显示 <b>{visibleCards.length}</b> / {cards.length}</span><i>趋势分由高到低</i></div>
         </div>
       </div>
 
-      <div className={`scanner-content mobile-view-${mobileView.toLocaleLowerCase()}`}>
+      <div className="scanner-content">
+        <StructureDistribution cards={visibleCards} />
+
         <div className="scanner-table" aria-live="polite">
           <div className="scanner-head" aria-hidden="true"><span>股票</span><span>收盘表现</span><span>趋势判断</span><span>期权结构</span><span>主要关注理由</span><span>日期</span><i /></div>
           {visibleCards.map((stock) => {
@@ -302,8 +291,6 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
           })}
           {!visibleCards.length && <div className="scanner-empty">当前筛选或搜索下没有符合条件的标的。</div>}
         </div>
-
-        <StructureDistribution cards={visibleCards} />
       </div>
       <footer><span>“安静强势”＝趋势分≥70、IV位置≤30且趋势样本至少中等；“结构突变”用于发现变化，不判断涨跌。</span><b>用于研究排序，不构成投资建议。</b></footer>
     </section>

@@ -29,7 +29,20 @@ export default async function SnapshotPage({ params, searchParams }: { params: P
   await connection();
   const dashboard = await getStockDashboard(symbol, requestedWindow);
   if (!dashboard) notFound();
-  const brief = buildResearchBrief({ marketStatus: dashboard.quote.marketStatus, rsi14: dashboard.trend.rsi14, rv20: dashboard.trend.rv20, atmIv: dashboard.options.atmIv, gammaRegime: dashboard.options.gammaExposure.regime });
+  const brief = buildResearchBrief({
+    marketStatus: dashboard.quote.marketStatus,
+    rsi14: dashboard.trend.rsi14,
+    relativeVolume: dashboard.trend.relativeVolume,
+    dailyChangePct: dashboard.quote.dailyChangePct,
+    bollinger: {
+      percentB: dashboard.trend.bollinger.percentB,
+      bandwidthPercentile: dashboard.trend.bollinger.bandwidthPercentile,
+      state: dashboard.trend.bollinger.state,
+    },
+    rv20: dashboard.trend.rv20,
+    atmIv: dashboard.options.atmIv,
+    gammaRegime: dashboard.options.gammaExposure.regime,
+  });
   const change = dashboard.quote.dailyChangePct;
   const exportData: SnapshotExportData = {
     symbol,

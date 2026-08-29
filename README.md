@@ -119,7 +119,7 @@ Cron runs incremental sync only. Bootstrap remains a one-time manual operation.
 
 Symbols outside `src/lib/stocks.ts` return 404. The public APIs do not expose raw full chains, provider proxying, database queries, CSV, or bulk exports.
 
-The dashboard also derives evidence-state summaries, 10-snapshot wall migration, expected-range and wall-continuation review, IV percentile/term structure, and 25-delta IV skew. IV skew filters zero/extreme IV, requires open interest, uses the liquid expiration closest to 30 days (preferably at least 7 days), and reports `25Δ Put IV − 25Δ Call IV`; it is a relative-pricing measure rather than a directional forecast.
+The dashboard also derives MA50/100/200 trend structure, Wilder RSI14, BOLL(20,2) price position and bandwidth state, 20-day relative volume, evidence-state summaries, 10-snapshot wall migration, expected-range and wall-continuation review, IV percentile/term structure, and 25-delta IV skew. BOLL uses adjusted closes and population standard deviation; its bandwidth state is ranked against up to 252 valid observations. IV skew filters zero/extreme IV, requires open interest, uses the liquid expiration closest to 30 days (preferably at least 7 days), and reports `25Δ Put IV − 25Δ Call IV`; these are context measures rather than directional forecasts.
 
 Stock detail pages use one beginner-readable layer: plain-language metric explanations, a three-step “what to read now” path, and evidence wording that avoids implying buy/sell support. Stock and option source dates remain visible as neutral scope tags; different snapshot dates are not promoted as a warning.
 
@@ -132,7 +132,7 @@ npm run test
 npm run build
 ```
 
-Tests cover MA50/100/200 (while retaining the legacy MA20 sync field), the 0–100 trend score, Wilder RSI14, RV20, insufficient history, expected move and pricing fallback, put/call OI, max pain, option walls, ATM IV, 25-delta IV skew, empty/missing contracts, field/date/side/IV mapping, null handling, and invalid-number filtering.
+Tests cover MA50/100/200 (while retaining the legacy MA20 sync field), the 0–100 trend score, Wilder RSI14, BOLL(20,2), RVOL20, RV20, insufficient history, expected move and pricing fallback, put/call OI, max pain, option walls, ATM IV, 25-delta IV skew, empty/missing contracts, field/date/side/IV mapping, null handling, and invalid-number filtering.
 
 ## 6. Private GitHub repository
 

@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 import { money, number, percent } from "@/lib/format";
 import { MetricLabel } from "@/components/metric-help";
 import { calculateTrendScoreBreakdown } from "@/lib/indicators/stock-metrics";
+import type { BollingerBandsSummary } from "@/lib/indicators/bollinger-bands";
 
 type NullableNumber = number | null;
 type GammaRegime = "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
@@ -131,10 +132,40 @@ export function TrendDeviation({
   );
 }
 
-export function MomentumVisual({ rsi, realizedVolatility }: { rsi: NullableNumber; realizedVolatility: NullableNumber }) {
+export function MomentumVisual({
+  rsi,
+  realizedVolatility,
+  close,
+  bollinger,
+}: {
+  rsi: NullableNumber;
+  realizedVolatility: NullableNumber;
+  close: number;
+  bollinger: BollingerBandsSummary;
+}) {
   const rsiPosition = rsi === null ? 50 : clamp(rsi, 0, 100);
   const rsiLabel = rsi === null ? "暂无数据" : rsi >= 70 ? "偏热" : rsi <= 30 ? "偏冷" : rsi >= 55 ? "偏强" : rsi <= 45 ? "偏弱" : "中性";
-  const rvProgress = realizedVolatility === null ? 0 : clamp(realizedVolatility * 100, 0, 100);
+  const bollPosition = bollinger.percentB === null ? 50 : ((clamp(bollinger.percentB, -0.2, 1.2) + 0.2) / 1.4) * 100;
+  const bollPositionLabel = bollinger.percentB === null
+    ? "位置暂无"
+    : bollinger.percentB >= 1
+      ? "上轨外"
+      : bollinger.percentB >= 0.75
+        ? "上轨附近"
+        : bollinger.percentB >= 0.5
+          ? "中轨上方"
+          : bollinger.percentB >= 0.25
+            ? "中轨下方"
+            : bollinger.percentB >= 0
+              ? "下轨附近"
+              : "下轨外";
+  const bollState = {
+    SQUEEZE: "带宽收口",
+    WIDE: "带宽偏宽",
+    NORMAL: "带宽常态",
+    UNAVAILABLE: "状态积累中",
+  }[bollinger.state];
+  const hasBollinger = bollinger.lower !== null && bollinger.middle !== null && bollinger.upper !== null && bollinger.percentB !== null;
 
   return (
     <div className="momentum-visual-grid">
@@ -143,11 +174,23 @@ export function MomentumVisual({ rsi, realizedVolatility }: { rsi: NullableNumbe
         <div className="rsi-track" style={{ "--rsi-position": `${rsiPosition}%` } as CSSProperties} role="img" aria-label={`RSI14 ${number(rsi)}，${rsiLabel}`}><i /></div>
         <div className="rsi-labels"><span>超卖 30</span><b>{rsiLabel}</b><span>超买 70</span></div>
       </div>
-      <div className="visual-card volatility-visual">
-        <div className="volatility-ring" style={{ "--rv-progress": `${rvProgress}%` } as CSSProperties} role="img" aria-label={`20日年化历史波动率 ${percent(realizedVolatility)}`}>
-          <div><strong>{percent(realizedVolatility)}</strong><span>RV20</span></div>
+      <div className="visual-card bollinger-visual">
+        <div className="visual-card-heading">
+          <div><span>价格状态</span><div className="heading-with-help"><strong><MetricLabel metric="bollinger">BOLL 20,2</MetricLabel></strong></div></div>
+          <b>{bollPositionLabel}</b>
         </div>
-        <div className="volatility-copy"><MetricLabel metric="rv20">已实现波动率</MetricLabel><strong>过去20个交易日</strong><small>按日收益率年化计算</small></div>
+        {!hasBollinger ? <div className="mini-empty">至少需要 20 个交易日数据</div> : <>
+          <div className="bollinger-track" style={{ "--boll-position": `${bollPosition}%` } as CSSProperties} role="img" aria-label={`现价 ${money(close)}，BOLL下轨 ${money(bollinger.lower)}，中轨 ${money(bollinger.middle)}，上轨 ${money(bollinger.upper)}，百分比B ${number(bollinger.percentB, 2)}`}>
+            <i className="bollinger-band" />
+            <i className="bollinger-midline" />
+            <span className="bollinger-spot"><i /><b>{money(close)}</b></span>
+          </div>
+          <div className="bollinger-labels"><span>下轨<b>{money(bollinger.lower)}</b></span><span>中轨<b>{money(bollinger.middle)}</b></span><span>上轨<b>{money(bollinger.upper)}</b></span></div>
+        </>}
+        <div className="bollinger-summary">
+          <span><b>{bollState}</b><small>{bollinger.bandwidthPercentile === null ? `近${bollinger.sampleSize}日·样本积累中` : `带宽处于近${bollinger.sampleSize}日第 ${bollinger.bandwidthPercentile} 分位`}</small></span>
+          <span><b>{bollinger.percentB === null ? "%B —" : `%B ${number(bollinger.percentB, 2)}`}</b><small>带宽 {percent(bollinger.bandwidth)} · RV20 {percent(realizedVolatility)}</small></span>
+        </div>
       </div>
     </div>
   );

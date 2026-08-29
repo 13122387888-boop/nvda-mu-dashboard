@@ -2,39 +2,64 @@ import { describe, expect, it } from "vitest";
 import { buildObservationScenarios, buildResearchBrief } from "./decision-support";
 
 describe("buildResearchBrief", () => {
-  it("summarizes trend, momentum, volatility pricing and gamma structure", () => {
+  it("summarizes MA trend, RSI/BOLL state, volume confirmation and options environment", () => {
     const result = buildResearchBrief({
       marketStatus: "STRONG_BULLISH",
       rsi14: 62,
+      relativeVolume: 1.8,
+      dailyChangePct: 2,
+      bollinger: { percentB: 0.82, bandwidthPercentile: 82, state: "WIDE" },
       rv20: 0.3,
       atmIv: 0.45,
       gammaRegime: "POSITIVE",
     });
-    expect(result.items.map((item) => item.state)).toEqual(["强势偏多", "偏强", "隐含波动较高", "正 Gamma 代理"]);
-    expect(result.summary).toContain("期权结构为正 Gamma 代理");
+    expect(result.items.map((item) => item.state)).toEqual(["强势偏多", "偏强·上轨附近", "放量确认", "正Gamma·IV高于实际波动"]);
+    expect(result.summary).toContain("放量确认");
   });
 
   it("does not invent conclusions when data is unavailable", () => {
     const result = buildResearchBrief({
       marketStatus: "INSUFFICIENT_DATA",
       rsi14: null,
+      relativeVolume: null,
+      dailyChangePct: null,
+      bollinger: { percentB: null, bandwidthPercentile: null, state: "UNAVAILABLE" },
       rv20: null,
       atmIv: null,
       gammaRegime: "UNAVAILABLE",
     });
-    expect(result.items.every((item) => item.state === "数据不足")).toBe(true);
+    expect(result.items[0].state).toBe("数据不足");
+    expect(result.items[2].state).toBe("数据不足");
+    expect(result.items[3].state).toContain("Gamma暂无");
   });
 
-  it("uses neutral bands for RSI and volatility ratio", () => {
+  it("keeps a partial RSI reading neutral when BOLL position is unavailable", () => {
+    const result = buildResearchBrief({
+      marketStatus: "BULLISH",
+      rsi14: 62,
+      relativeVolume: 1,
+      dailyChangePct: 0.5,
+      bollinger: { percentB: null, bandwidthPercentile: null, state: "UNAVAILABLE" },
+      rv20: 0.3,
+      atmIv: 0.35,
+      gammaRegime: "NEUTRAL",
+    });
+    expect(result.items[1]).toMatchObject({ state: "偏强·BOLL位置暂无", tone: "neutral" });
+  });
+
+  it("uses neutral bands for RSI, BOLL and normal volume", () => {
     const result = buildResearchBrief({
       marketStatus: "NEUTRAL",
       rsi14: 50,
+      relativeVolume: 1,
+      dailyChangePct: 0.2,
+      bollinger: { percentB: 0.5, bandwidthPercentile: 50, state: "NORMAL" },
       rv20: 0.4,
       atmIv: 0.42,
       gammaRegime: "NEUTRAL",
     });
-    expect(result.items[1].state).toBe("中性");
-    expect(result.items[2].state).toBe("两者接近");
+    expect(result.items[1].state).toBe("中性·中轨上方");
+    expect(result.items[2].state).toBe("成交常态");
   });
 });
 

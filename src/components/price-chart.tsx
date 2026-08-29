@@ -3,9 +3,28 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CandlestickSeries, ColorType, createChart, HistogramSeries, LineSeries, LineStyle, type Time } from "lightweight-charts";
 
-type Point = { date: string; open: number; high: number; low: number; close: number; ma50: number | null; ma100: number | null; ma200: number | null; volume: number | null; volumeAverage20: number | null; relativeVolume: number | null };
+type Point = {
+  date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  ma50: number | null;
+  ma100: number | null;
+  ma200: number | null;
+  bollingerUpper: number | null;
+  bollingerMiddle: number | null;
+  bollingerLower: number | null;
+  bollingerPercentB: number | null;
+  bollingerBandwidth: number | null;
+  rsi14: number | null;
+  volume: number | null;
+  volumeAverage20: number | null;
+  relativeVolume: number | null;
+};
 type WallLevel = { strike: number | null; strength: number | null; persistenceSnapshots: number };
 type PriceLevels = { maxPain: number | null; callWall: WallLevel; putWall: WallLevel; expectedUpper: number | null; expectedLower: number | null };
+type PriceOverlay = "averages" | "bollinger";
 
 function compactVolume(value: number | null) {
   if (value === null) return "—";
@@ -21,7 +40,7 @@ function chartTimeKey(time: Time | undefined) {
 
 export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevels }) {
   const container = useRef<HTMLDivElement>(null);
-  const [showAverages, setShowAverages] = useState(true);
+  const [priceOverlay, setPriceOverlay] = useState<PriceOverlay>("averages");
   const [showOptionLevels, setShowOptionLevels] = useState(true);
   const [showVolume, setShowVolume] = useState(true);
   const [activePoint, setActivePoint] = useState<Point | null>(data.at(-1) ?? null);
@@ -66,9 +85,27 @@ export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevel
       { key: "ma100" as const, color: "#4f8cff", width: 2 as const },
       { key: "ma200" as const, color: "#f0b45c", width: 2 as const },
     ];
-    if (showAverages) {
+    if (priceOverlay === "averages") {
       for (const item of series) {
         const line = chart.addSeries(LineSeries, { color: item.color, lineWidth: item.width, priceLineVisible: false, lastValueVisible: false });
+        line.setData(data.filter((point) => point[item.key] !== null).map((point) => ({ time: point.date as Time, value: point[item.key]! })));
+      }
+    }
+    if (priceOverlay === "bollinger") {
+      const bollingerSeries = [
+        { key: "bollingerUpper" as const, color: "rgba(79,140,255,.82)", width: 1 as const, style: LineStyle.Solid },
+        { key: "bollingerMiddle" as const, color: "rgba(243,246,250,.62)", width: 1 as const, style: LineStyle.Dashed },
+        { key: "bollingerLower" as const, color: "rgba(79,140,255,.82)", width: 1 as const, style: LineStyle.Solid },
+      ];
+      for (const item of bollingerSeries) {
+        const line = chart.addSeries(LineSeries, {
+          color: item.color,
+          lineWidth: item.width,
+          lineStyle: item.style,
+          priceLineVisible: false,
+          lastValueVisible: false,
+          crosshairMarkerVisible: false,
+        });
         line.setData(data.filter((point) => point[item.key] !== null).map((point) => ({ time: point.date as Time, value: point[item.key]! })));
       }
     }
@@ -96,22 +133,32 @@ export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevel
       if (key) setActivePoint(dataByDate.get(key) ?? data.at(-1) ?? null);
     });
     return () => chart.remove();
-  }, [data, dataByDate, levels, showAverages, showOptionLevels, showVolume]);
+  }, [data, dataByDate, levels, priceOverlay, showOptionLevels, showVolume]);
 
   if (!data.length) return <div className="chart-empty">暂无价格历史数据</div>;
   return (
     <div className="price-chart-shell">
       <div className="chart-layer-controls" aria-label="K线图层开关">
-        <button type="button" aria-pressed={showAverages} className={showAverages ? "active" : ""} onClick={() => setShowAverages((value) => !value)}><i className="averages" />均线</button>
+        <div className="chart-overlay-choice" role="group" aria-label="价格覆盖层">
+          <button type="button" aria-pressed={priceOverlay === "averages"} className={priceOverlay === "averages" ? "active" : ""} onClick={() => setPriceOverlay("averages")}><i className="averages" />均线</button>
+          <button type="button" aria-pressed={priceOverlay === "bollinger"} className={priceOverlay === "bollinger" ? "active" : ""} onClick={() => setPriceOverlay("bollinger")}><i className="bollinger" />BOLL</button>
+        </div>
         <button type="button" aria-pressed={showOptionLevels} className={showOptionLevels ? "active" : ""} onClick={() => setShowOptionLevels((value) => !value)}><i className="levels" />期权关键位</button>
         <button type="button" aria-pressed={showVolume} className={showVolume ? "active" : ""} onClick={() => setShowVolume((value) => !value)}><i className="volume" />成交量</button>
       </div>
       {activePoint && <div className="price-point-readout" aria-live="polite">
         <b>{activePoint.date}</b>
         <span>开 {activePoint.open.toFixed(2)}</span><span>高 {activePoint.high.toFixed(2)}</span><span>低 {activePoint.low.toFixed(2)}</span><span>收 {activePoint.close.toFixed(2)}</span>
-        <small>MA50 {activePoint.ma50?.toFixed(2) ?? "—"} · MA100 {activePoint.ma100?.toFixed(2) ?? "—"} · MA200 {activePoint.ma200?.toFixed(2) ?? "—"} · 量 {compactVolume(activePoint.volume)} · RVOL {activePoint.relativeVolume?.toFixed(2) ?? "—"}×</small>
+        <small>
+          {priceOverlay === "averages" ? (
+            <>MA50 {activePoint.ma50?.toFixed(2) ?? "—"} · MA100 {activePoint.ma100?.toFixed(2) ?? "—"} · MA200 {activePoint.ma200?.toFixed(2) ?? "—"}</>
+          ) : (
+            <>BOLL 上 {activePoint.bollingerUpper?.toFixed(2) ?? "—"} · 中 {activePoint.bollingerMiddle?.toFixed(2) ?? "—"} · 下 {activePoint.bollingerLower?.toFixed(2) ?? "—"} · %B {activePoint.bollingerPercentB?.toFixed(2) ?? "—"} · 带宽 {activePoint.bollingerBandwidth === null ? "—" : `${(activePoint.bollingerBandwidth * 100).toFixed(1)}%`}</>
+          )}
+          <> · RSI14 {activePoint.rsi14?.toFixed(1) ?? "—"} · 量 {compactVolume(activePoint.volume)} · 20日均量 {compactVolume(activePoint.volumeAverage20)} · RVOL {activePoint.relativeVolume?.toFixed(2) ?? "—"}×</>
+        </small>
       </div>}
-      <div ref={container} className="price-chart" aria-label="近六个月日K、移动平均线与期权关键价位图，点按可读取精确数值" />
+      <div ref={container} className="price-chart" aria-label="日K、均线或布林带、成交量与期权关键价位图，点按可读取精确数值" />
     </div>
   );
 }

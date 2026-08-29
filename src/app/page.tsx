@@ -17,6 +17,9 @@ export default async function Home() {
       trendScore: null,
       trendConfidence: { level: "LOW" as const, label: "低", reason: "等待数据" },
       relativeVolume: null,
+      rsi14: null,
+      maStructure: "UNAVAILABLE" as const,
+      bollinger: { middle: null, upper: null, lower: null, percentB: null, bandwidth: null, bandwidthPercentile: null, state: "UNAVAILABLE" as const, sampleSize: 0 },
       marketStatus: "INSUFFICIENT_DATA",
       gammaRegime: "UNAVAILABLE" as const,
       attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
@@ -26,7 +29,6 @@ export default async function Home() {
     }));
   }
   const newestDate = cards.map((card) => card.dataDate).filter((date): date is string => Boolean(date)).sort().at(-1) ?? "等待同步";
-  const comparableCount = cards.filter((card) => card.dayOverDay?.previousStockDate).length;
 
   return (
     <main className="shell">
@@ -34,12 +36,12 @@ export default async function Home() {
       <section className="hero home-hero">
         <div className="home-hero-copy">
           <p className="eyebrow">每日收盘结构扫描</p>
-          <h1>先看变化，再决定今天研究谁。</h1>
+          <h1>先看结构，再决定今天研究谁。</h1>
           <p className="hero-copy">
-            把价格趋势和期权结构放在同一张清单里。先看相较上一交易日发生了什么，再进入详情查看依据。
+            把趋势、动量、BOLL位置、量能与期权结构放进同一套阅读路径，再进入详情查看完整依据。
           </p>
           <div className="home-reading-path" aria-label="数据状态">
-            <span><b>数据</b>最新收盘 {newestDate} · {cards.length} 个标的 · {comparableCount} 个有昨日对比</span>
+            <span><b>数据</b>最新收盘 {newestDate} · {cards.length} 个标的 · 按趋势分由高到低</span>
           </div>
         </div>
       </section>

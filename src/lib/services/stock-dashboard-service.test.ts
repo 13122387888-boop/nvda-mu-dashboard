@@ -1,9 +1,23 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyMaStructure,
   classifyExpectedRange,
   ivPercentileLabel,
   stockAttention,
 } from "./stock-dashboard-service";
+
+describe("classifyMaStructure", () => {
+  it.each([
+    [{ close: 120, ma50: 110, ma100: 100, ma200: 90 }, "BULLISH"],
+    [{ close: 105, ma50: 110, ma100: 100, ma200: 90 }, "BULLISH_PULLBACK"],
+    [{ close: 95, ma50: 110, ma100: 100, ma200: 90 }, "MIXED"],
+    [{ close: 80, ma50: 90, ma100: 100, ma200: 110 }, "BEARISH"],
+    [{ close: 100, ma50: 90, ma100: 110, ma200: 95 }, "MIXED"],
+    [{ close: 100, ma50: 90, ma100: 80, ma200: null }, "UNAVAILABLE"],
+  ] as const)("classifies the 50/100/200 MA structure as %s", (input, expected) => {
+    expect(classifyMaStructure(input)).toBe(expected);
+  });
+});
 
 describe("classifyExpectedRange", () => {
   it.each([

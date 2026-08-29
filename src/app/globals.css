@@ -857,6 +857,9 @@ body { overflow-x: hidden; }
 .evidence-item.evidence-support em { border-color: color-mix(in srgb, var(--info) 52%, #3b4654); color: #b9b1ff; }
 .evidence-item.evidence-conflict { border-color: color-mix(in srgb, var(--warning) 46%, #303b49); background: color-mix(in srgb, var(--warning) 6%, #111821); }
 .evidence-item.evidence-conflict em { border-color: color-mix(in srgb, var(--warning) 52%, #3b4654); color: var(--warning); }
+.evidence-balance .evidence-unavailable { background: #2e3743; }
+.evidence-item.evidence-unavailable { border-color: #28313d; background: #0d131b; }
+.evidence-item.evidence-unavailable em { border-color: #303a47; color: #687585; }
 .evidence-item:hover, .evidence-item:focus-visible { border-color: #79879a; background: #151d27; outline: none; }
 .evidence-item > i { display: block; width: fit-content; margin-top: 7px; color: #7e8da0; font: 700 .52rem/1 var(--font-geist-sans), sans-serif; font-style: normal; }
 .evidence-item:hover > i { color: #dce3ec; }
@@ -1522,4 +1525,176 @@ body { overflow-x: hidden; }
   .scanner-stock b { font-size: .7rem; }
   .scanner-price b { font-size: .64rem; }
   .scanner-primary-reason { font-size: .58rem; }
+}
+
+/* Technical-state colors used by the homepage distribution chart. */
+.distribution-legend i.rsi-hot { background: var(--negative); }
+.distribution-legend i.rsi-strong { background: var(--positive); }
+.distribution-legend i.rsi-weak { background: var(--warning); }
+.distribution-legend i.rsi-cold { background: var(--info); }
+.distribution-legend i.neutral { background: var(--insufficient); }
+.distribution-point.rsi-hot circle:not(.distribution-anchor) {
+  fill: color-mix(in srgb, var(--negative) 28%, #111821);
+  stroke: var(--negative);
+}
+.distribution-point.rsi-strong circle:not(.distribution-anchor) {
+  fill: color-mix(in srgb, var(--positive) 28%, #111821);
+  stroke: var(--positive);
+}
+.distribution-point.rsi-weak circle:not(.distribution-anchor) {
+  fill: color-mix(in srgb, var(--warning) 27%, #111821);
+  stroke: var(--warning);
+}
+.distribution-point.rsi-cold circle:not(.distribution-anchor) {
+  fill: color-mix(in srgb, var(--info) 28%, #111821);
+  stroke: var(--info);
+}
+.distribution-point.neutral circle:not(.distribution-anchor) {
+  fill: color-mix(in srgb, var(--insufficient) 28%, #111821);
+  stroke: var(--insufficient);
+}
+
+/* Price-chart overlay selector: MA and BOLL are mutually exclusive layers. */
+.chart-layer-controls {
+  max-width: 100%;
+  align-items: center;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+}
+.chart-layer-controls::-webkit-scrollbar { display: none; }
+.chart-overlay-choice {
+  min-width: max-content;
+  padding: 2px;
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: 2px;
+  border: 1px solid #303b49;
+  background: #090d12;
+}
+.chart-overlay-choice button {
+  min-height: 30px;
+  padding: 6px 9px;
+  border: 0;
+  background: transparent;
+}
+.chart-overlay-choice button.active {
+  background: #18212c;
+  box-shadow: inset 0 -2px 0 var(--green);
+}
+.chart-layer-controls > button { flex: 0 0 auto; }
+.chart-layer-controls i.bollinger {
+  height: 7px;
+  background:
+    linear-gradient(to bottom,
+      #4f8cff 0 1px,
+      transparent 1px 3px,
+      rgba(243,246,250,.7) 3px 4px,
+      transparent 4px 6px,
+      #4f8cff 6px 7px);
+}
+.chart-overlay-choice button.active i.bollinger { filter: brightness(1.22); }
+.price-chart-shell,
+.price-chart,
+.price-point-readout { min-width: 0; max-width: 100%; }
+
+/* Compact RSI + BOLL technical-state view. */
+.bollinger-visual { display: flex; flex-direction: column; }
+.bollinger-track {
+  --boll-position: 50%;
+  height: 12px;
+  margin: 40px 10px 13px;
+  position: relative;
+  border: 1px solid rgba(79, 140, 255, .46);
+  border-radius: 999px;
+  background: #0a0f16;
+}
+.bollinger-band {
+  position: absolute;
+  top: 1px;
+  right: 14.2857%;
+  bottom: 1px;
+  left: 14.2857%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(79,140,255,.2), rgba(79,140,255,.08) 50%, rgba(79,140,255,.2));
+}
+.bollinger-midline {
+  position: absolute;
+  top: -7px;
+  bottom: -7px;
+  left: 50%;
+  border-left: 1px dashed rgba(243, 246, 250, .5);
+}
+.bollinger-spot {
+  position: absolute;
+  left: clamp(22px, var(--boll-position), calc(100% - 22px));
+  top: 50%;
+  transform: translate(-50%, -50%);
+}
+.bollinger-spot > i {
+  display: block;
+  width: 17px;
+  height: 17px;
+  border: 4px solid var(--text);
+  border-radius: 50%;
+  background: var(--bg);
+  box-shadow: 0 3px 14px rgba(0,0,0,.45);
+}
+.bollinger-spot > b {
+  position: absolute;
+  left: 50%;
+  bottom: 18px;
+  transform: translateX(-50%);
+  font: 700 .64rem/1 var(--font-geist-mono), monospace;
+  white-space: nowrap;
+}
+.bollinger-labels { padding-inline: 14.2857%; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; color: var(--muted); font-size: .62rem; }
+.bollinger-labels span { display: flex; flex-direction: column; gap: 4px; }
+.bollinger-labels span:nth-child(2) { text-align: center; }
+.bollinger-labels span:last-child { text-align: right; }
+.bollinger-labels b { color: var(--text); font: 650 .67rem/1 var(--font-geist-mono), monospace; }
+.bollinger-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: auto; padding-top: 17px; }
+.bollinger-summary > span { min-width: 0; padding: 11px 12px; display: flex; flex-direction: column; gap: 5px; border: 1px solid var(--line); background: #0b1017; }
+.bollinger-summary b { font-size: .72rem; }
+.bollinger-summary small { color: var(--muted); font-size: .6rem; line-height: 1.45; overflow-wrap: anywhere; }
+
+@media (max-width: 400px) {
+  .structure-distribution,
+  .distribution-heading,
+  .distribution-heading-tools,
+  .distribution-mode-switch,
+  .distribution-legend,
+  .distribution-chart,
+  .distribution-readout,
+  .structure-distribution > footer,
+  .price-chart-shell,
+  .chart-layer-controls,
+  .price-point-readout {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .distribution-mode-switch { display: flex; }
+  .distribution-mode-switch button { min-width: 0; }
+  .distribution-legend { gap: 6px 9px; font-size: .56rem; }
+  .distribution-legend span { min-width: 0; }
+  .distribution-readout > div { max-width: 100%; }
+  .chart-layer-controls { gap: 5px; }
+  .chart-layer-controls button { min-width: max-content; padding-inline: 8px; }
+  .price-point-readout { align-items: flex-start; gap: 6px 9px; }
+  .price-point-readout small {
+    min-width: 0;
+    max-width: 100%;
+    margin-left: 0;
+    flex-basis: 100%;
+    overflow-wrap: anywhere;
+    line-height: 1.45;
+  }
+  .bollinger-track { margin-inline: 4px; }
+  .bollinger-labels { padding-inline: 8%; gap: 4px; }
+  .bollinger-labels b { font-size: .61rem; }
+  .bollinger-summary { grid-template-columns: 1fr; }
 }

@@ -49,7 +49,7 @@ export function DataScope({
       <details>
         <summary>数据口径与限制</summary>
         <div className="scope-grid">
-          <div><b>股票行情</b><p>采用调整后日线数据计算涨跌、MA50/100/200、RSI14 与 RV20。当前数据源：{stockProviders.map((provider) => provider === "ONCLICKMEDIA" ? "OnclickMedia" : provider === "LONGBRIDGE" ? "长桥" : provider).join(" + ")}。页面不是盘中实时行情。</p></div>
+          <div><b>股票行情</b><p>采用调整后日线数据计算涨跌、MA50/100/200、RSI14、BOLL(20,2)、RVOL20 与 RV20。当前数据源：{stockProviders.map((provider) => provider === "ONCLICKMEDIA" ? "OnclickMedia" : provider === "LONGBRIDGE" ? "长桥" : provider).join(" + ")}。页面不是盘中实时行情。</p></div>
           <div><b>期权范围</b><p>使用最新可取得的日终期权链。看涨墙、看跌墙、未平仓量比（Put/Call）、OI 与 Gamma 在“{optionWindow}”内汇总；当前覆盖{strikeCount ? `${strikeCount} 个近价行权价` : "暂无可用行权价"}。</p></div>
           <div><b>模型指标</b><p>预期区间、平值隐含波动率（ATM IV）与最大痛点采用所选范围内最近到期日 {expiration ?? "暂无"}；Gamma 统一按看涨（Call）为正、看跌（Put）为负计算结构代理。</p></div>
           <div><b>使用边界</b><p>规则观察未纳入盘中变化、财报新闻、交易成本、个人持仓及风险承受能力，仅用于研究展示。</p></div>
@@ -66,8 +66,6 @@ export function ResearchOverview({
   confidence,
   stockDate,
   levels,
-  relativeVolume,
-  ivPercentile,
 }: {
   input: DecisionSupportInput;
   close: number;
@@ -75,54 +73,43 @@ export function ResearchOverview({
   confidence: { level: "HIGH" | "MEDIUM" | "LOW"; label: string; reason: string };
   stockDate: string;
   levels: KeyLevels;
-  relativeVolume: number | null;
-  ivPercentile: { percentile: number | null; label: string };
 }) {
   const brief = buildResearchBrief(input);
   const nearest = nearestKeyLevel(close, levels);
   const nearestPosition = !nearest ? "暂无可用期权关键位" : Math.abs(nearest.delta) < 0.0005
     ? "与现价基本重合"
     : `${nearest.delta > 0 ? "现价上方" : "现价下方"} ${percent(Math.abs(nearest.delta))}`;
-  const gammaLabel = input.gammaRegime === "POSITIVE" ? "波动偏收敛（正 Gamma）" : input.gammaRegime === "NEGATIVE" ? "波动易放大（负 Gamma）" : input.gammaRegime === "NEUTRAL" ? "波动机制中性" : "Gamma 暂无";
-  const volumeLabel = relativeVolume === null ? "量能暂无" : relativeVolume >= 1.5 ? `成交活跃 ${relativeVolume.toFixed(1)}×` : relativeVolume <= 0.7 ? `成交偏淡 ${relativeVolume.toFixed(1)}×` : `成交常态 ${relativeVolume.toFixed(1)}×`;
   const trendLabel = trendScore === null ? "趋势暂无" : trendScore >= 60 ? `走势偏强（${trendScore}/100）` : trendScore <= 40 ? `走势偏弱（${trendScore}/100）` : `走势中性（${trendScore}/100）`;
-  const ivPositionLabel = ivPercentile.percentile === null ? ivPercentile.label : `${ivPercentile.percentile >= 70 ? "定价偏高" : ivPercentile.percentile <= 30 ? "定价偏低" : "定价中位"}（${ivPercentile.percentile}%分位）`;
   const trendTone = brief.items[0].tone;
-  const volatilityState = brief.items[2].state;
-  const trendVerdict = trendScore === null ? "neutral"
-    : trendTone === "positive" ? (trendScore >= 55 ? "support" : "conflict")
-      : trendTone === "negative" ? (trendScore <= 45 ? "support" : "conflict")
-        : trendScore >= 45 && trendScore <= 55 ? "support" : "neutral";
-  const volumeVerdict = relativeVolume === null ? "neutral" : relativeVolume >= 1.5 ? "support" : relativeVolume <= 0.7 ? "conflict" : "neutral";
-  const gammaVerdict = input.gammaRegime === "UNAVAILABLE" || input.gammaRegime === "NEUTRAL" ? "neutral"
-    : trendTone === "neutral" ? (input.gammaRegime === "POSITIVE" ? "support" : "conflict")
-      : input.gammaRegime === "NEGATIVE" ? "support" : "neutral";
-  const ivVerdict = ivPercentile.percentile === null ? "neutral"
-    : volatilityState === "隐含波动较高" ? (ivPercentile.percentile >= 70 ? "support" : ivPercentile.percentile <= 30 ? "conflict" : "neutral")
-      : volatilityState === "隐含波动较低" ? (ivPercentile.percentile <= 30 ? "support" : ivPercentile.percentile >= 70 ? "conflict" : "neutral")
-        : ivPercentile.percentile >= 30 && ivPercentile.percentile <= 70 ? "support" : "neutral";
+  const relationVerdict = (tone: typeof brief.items[number]["tone"], mechanismOnly = false) => {
+    if (mechanismOnly || tone === "neutral") return "neutral" as const;
+    if (tone === "warning") return "conflict" as const;
+    if (trendTone === "positive") return tone === "positive" ? "support" as const : "conflict" as const;
+    if (trendTone === "negative") return tone === "negative" ? "support" as const : "conflict" as const;
+    return "neutral" as const;
+  };
   const evidence = [
-    { label: "趋势", value: trendLabel, verdict: trendVerdict, targetId: "price-trend" },
-    { label: "量能", value: volumeLabel, verdict: volumeVerdict, targetId: "price-chart" },
-    { label: "Gamma", value: gammaLabel, verdict: gammaVerdict, targetId: "options-gamma" },
-    { label: "IV位置", value: ivPositionLabel, verdict: ivVerdict, targetId: "momentum-pricing" },
+    { label: "趋势结构", value: `${brief.items[0].state}${trendScore === null ? "" : ` · ${trendScore}/100`}`, verdict: relationVerdict(brief.items[0].tone), available: trendScore !== null && input.marketStatus !== "INSUFFICIENT_DATA", targetId: "price-trend" },
+    { label: "短线状态", value: brief.items[1].state, verdict: relationVerdict(brief.items[1].tone), available: input.rsi14 !== null || input.bollinger.percentB !== null, targetId: "momentum-overview" },
+    { label: "量能确认", value: `${brief.items[2].state}${input.relativeVolume === null ? "" : ` · ${input.relativeVolume.toFixed(1)}×`}`, verdict: relationVerdict(brief.items[2].tone), available: input.relativeVolume !== null, targetId: "price-chart" },
+    { label: "期权环境", value: brief.items[3].state, verdict: relationVerdict(brief.items[3].tone, true), available: input.gammaRegime !== "UNAVAILABLE" || (input.atmIv !== null && input.rv20 !== null && input.rv20 > 0), targetId: "options-gamma" },
   ] as const;
   const verdictLabels = { support: "一致", neutral: "补充", conflict: "需复核" } as const;
   const verdictIcons = { support: "✓", neutral: "·", conflict: "!" } as const;
-  const evidenceCounts = evidence.reduce((counts, item) => ({ ...counts, [item.verdict]: counts[item.verdict] + 1 }), { support: 0, neutral: 0, conflict: 0 });
-  const availableEvidence = evidence.filter((item) => !item.value.includes("暂无") && !item.value.includes("积累中") && !item.value.startsWith("—")).length;
+  const availableEvidence = evidence.filter((item) => item.available);
+  const evidenceCounts = availableEvidence.reduce((counts, item) => ({ ...counts, [item.verdict]: counts[item.verdict] + 1 }), { support: 0, neutral: 0, conflict: 0 });
   return (
     <section className={`research-overview tone-${brief.items[0].tone}`} aria-labelledby="research-overview-title">
       <div className="overview-heading"><span>首屏研究摘要</span><b>日终数据 · {stockDate}</b></div>
       <div className="overview-decision-grid">
         <article className="decision-conclusion"><span>01 结论</span><h2 id="research-overview-title">{brief.summary}</h2><small>趋势数据完整度 {confidence.label} · {confidence.reason}</small></article>
-        <article className="decision-evidence"><span>02 依据</span><div className="evidence-summary"><strong>{evidenceCounts.support}/{availableEvidence || evidence.length} 条依据与结论一致</strong><small>{evidenceCounts.support}一致 · {evidenceCounts.neutral}补充 · {evidenceCounts.conflict}需复核</small></div><div className="evidence-balance" aria-label="依据一致性分布">{evidence.map((item) => <i className={`evidence-${item.verdict}`} key={item.label} />)}</div><div className="evidence-grid">{evidence.map((item) => <BriefLink targetId={item.targetId} hint="查看 →" className={`evidence-item evidence-${item.verdict}`} key={item.label}><div><span>{item.label}</span><em>{verdictIcons[item.verdict]} {verdictLabels[item.verdict]}</em></div><strong>{item.value}</strong></BriefLink>)}</div><small className="evidence-legend">一致＝强化当前摘要 · 需复核＝存在相反信息；Gamma 只描述波动机制，不判断涨跌。</small></article>
+        <article className="decision-evidence"><span>02 依据</span><div className="evidence-summary"><strong>{evidenceCounts.support}/{availableEvidence.length} 条可用依据与结论一致</strong><small>{evidenceCounts.support}一致 · {evidenceCounts.neutral}补充 · {evidenceCounts.conflict}需复核</small></div><div className="evidence-balance" aria-label="依据一致性分布">{evidence.map((item) => <i className={`evidence-${item.available ? item.verdict : "unavailable"}`} key={item.label} />)}</div><div className="evidence-grid">{evidence.map((item) => <BriefLink targetId={item.targetId} hint="查看 →" className={`evidence-item evidence-${item.available ? item.verdict : "unavailable"}`} key={item.label}><div><span>{item.label}</span><em>{item.available ? `${verdictIcons[item.verdict]} ${verdictLabels[item.verdict]}` : "· 待数据"}</em></div><strong>{item.value}</strong></BriefLink>)}</div><small className="evidence-legend">一致＝强化当前摘要 · 需复核＝存在相反信息 · 待数据不参与统计；Gamma 只描述波动机制，不判断涨跌。</small></article>
         <article className="decision-observation">
           <span>03 现在先看</span>
           <div className="overview-reading-path">
             <BriefLink targetId="price-trend" className="overview-path-step" hint="查看 →"><b>1</b><span>方向</span><strong>{trendLabel}</strong></BriefLink>
             <BriefLink targetId="price-distance" className="overview-path-step" hint="查看 →"><b>2</b><span>位置</span><strong>{nearest ? `${nearest.label} · ${nearestPosition}` : "关键价位数据不足"}</strong></BriefLink>
-            <BriefLink targetId={input.gammaRegime === "UNAVAILABLE" ? "momentum-pricing" : "options-gamma"} className="overview-path-step" hint="查看 →"><b>3</b><span>波动</span><strong>{gammaLabel}</strong></BriefLink>
+            <BriefLink targetId="momentum-overview" className="overview-path-step" hint="查看 →"><b>3</b><span>确认</span><strong>{brief.items[1].state} · {brief.items[2].state}</strong></BriefLink>
           </div>
         </article>
       </div>
@@ -135,9 +122,9 @@ export function ResearchBrief({ input }: { input: DecisionSupportInput }) {
   const brief = buildResearchBrief(input);
   const targets: Record<string, string> = {
     "趋势": "price-trend",
-    "动量": "momentum-overview",
-    "波动定价": "momentum-pricing",
-    "期权结构": "options-gamma",
+    "短线状态": "momentum-overview",
+    "量能": "price-chart",
+    "期权环境": "options-gamma",
   };
   return (
     <section className="research-brief" aria-labelledby="research-brief-title">

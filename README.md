@@ -100,7 +100,7 @@ npm run sync:data
 
 The backfill inserts missing dates, refreshes the most recent eight sessions, and recalculates the latest metrics. It is not part of the Vercel runtime or Cron job.
 
-Vercel Cron calls `GET /api/cron/sync` at `23:30 UTC` on weekdays. It requires:
+Vercel Cron calls `GET /api/cron/sync` at `05:30 UTC` from Tuesday through Saturday, after the preceding US trading day's extended-hours session and calendar rollover. It requires:
 
 ```http
 Authorization: Bearer <CRON_SECRET>

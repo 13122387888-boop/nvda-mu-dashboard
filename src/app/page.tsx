@@ -15,6 +15,7 @@ export default async function Home() {
       close: null,
       dailyChangePct: null,
       trendScore: null,
+      trendConfidence: { level: "LOW" as const, label: "低", reason: "等待数据" },
       relativeVolume: null,
       marketStatus: "INSUFFICIENT_DATA",
       gammaRegime: "UNAVAILABLE" as const,
@@ -25,7 +26,6 @@ export default async function Home() {
     }));
   }
   const newestDate = cards.map((card) => card.dataDate).filter((date): date is string => Boolean(date)).sort().at(-1) ?? "等待同步";
-  const etfCount = cards.filter((card) => card.assetType === "ETF").length;
   const comparableCount = cards.filter((card) => card.dayOverDay?.previousStockDate).length;
 
   return (
@@ -38,13 +38,10 @@ export default async function Home() {
           <p className="hero-copy">
             把价格趋势和期权结构放在同一张清单里。先看相较上一交易日发生了什么，再进入详情查看依据。
           </p>
-          <div className="home-reading-path" aria-label="首页使用步骤"><span><b>01</b>找变化</span><span><b>02</b>看强弱</span><span><b>03</b>查关键位</span></div>
+          <div className="home-reading-path" aria-label="数据状态">
+            <span><b>数据</b>最新收盘 {newestDate} · {cards.length} 个标的 · {comparableCount} 个有昨日对比</span>
+          </div>
         </div>
-        <aside className="home-market-status" aria-label="数据覆盖状态">
-          <span>最新完整收盘</span><strong>{newestDate}</strong>
-          <div><span>覆盖 <b>{cards.length}</b> 个标的</span><span>ETF <b>{etfCount}</b> 只</span></div>
-          <p>{comparableCount === cards.length ? "全部标的均可与上一交易日比较" : `${comparableCount} 个标的已有上一交易日对比`}</p>
-        </aside>
       </section>
       <StockScanner cards={cards} />
       {!cards.some((card) => card.dataDate) && (

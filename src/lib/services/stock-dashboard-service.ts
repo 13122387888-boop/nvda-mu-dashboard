@@ -114,6 +114,52 @@ function aggregateOptionWall(chain: OptionContractRecord[], side: "CALL" | "PUT"
     .sort((a, b) => b[1] - a[1] || Math.abs(a[0] - close) - Math.abs(b[0] - close))[0]?.[0] ?? null;
 }
 
+export type ExpectedRangeValidation = {
+  lower: number | null;
+  upper: number | null;
+  state: "ABOVE" | "BELOW" | "NEAR_UPPER" | "NEAR_LOWER" | "INSIDE" | "UNAVAILABLE";
+  boundaryDistancePct: number | null;
+};
+
+export function classifyExpectedRange(
+  lower: number | null,
+  upper: number | null,
+  currentClose: number,
+): ExpectedRangeValidation {
+  if (lower === null || upper === null || !Number.isFinite(lower) || !Number.isFinite(upper) || lower >= upper || !Number.isFinite(currentClose) || currentClose <= 0) {
+    return { lower, upper, state: "UNAVAILABLE", boundaryDistancePct: null };
+  }
+
+  let state: ExpectedRangeValidation["state"];
+  let boundary: number;
+  if (currentClose > upper) {
+    state = "ABOVE";
+    boundary = upper;
+  } else if (currentClose < lower) {
+    state = "BELOW";
+    boundary = lower;
+  } else {
+    const position = (currentClose - lower) / (upper - lower);
+    if (position <= 0.15) {
+      state = "NEAR_LOWER";
+      boundary = lower;
+    } else if (position >= 0.85) {
+      state = "NEAR_UPPER";
+      boundary = upper;
+    } else {
+      state = "INSIDE";
+      boundary = currentClose - lower <= upper - currentClose ? lower : upper;
+    }
+  }
+
+  return {
+    lower,
+    upper,
+    state,
+    boundaryDistancePct: Math.abs(currentClose - boundary) / currentClose * 100,
+  };
+}
+
 async function loadDayOverDayChange(input: {
   symbol: SupportedSymbol;
   currentTradeDate: Date;
@@ -177,7 +223,12 @@ async function loadDayOverDayChange(input: {
   })), previousClose).regime;
   const currentCallWall = aggregateOptionWall(currentOptions, "CALL", input.currentClose);
   const previousCallWall = previousClose === null ? null : aggregateOptionWall(previousOptions, "CALL", previousClose);
-  const currentExpectedUpper = calculateOptionMetrics(currentOptions, input.currentClose).expectedUpper;
+  const previousPricing = previousClose === null ? null : calculateOptionMetrics(previousOptions, previousClose);
+  const expectedRange = classifyExpectedRange(
+    previousPricing?.expectedLower ?? null,
+    previousPricing?.expectedUpper ?? null,
+    input.currentClose,
+  );
 
   return {
     previousStockDate: previousStock?.tradeDate ?? null,
@@ -191,9 +242,7 @@ async function loadDayOverDayChange(input: {
       current: currentCallWall,
       delta: currentCallWall === null || previousCallWall === null ? null : currentCallWall - previousCallWall,
     },
-    expectedUpperDistancePct: currentExpectedUpper === null || input.currentClose <= 0
-      ? null
-      : ((currentExpectedUpper - input.currentClose) / input.currentClose) * 100,
+    expectedRange,
     relativeVolume,
   };
 }
@@ -205,6 +254,12 @@ function percentileRank(values: Array<number | null>, current: number | null, mi
   }
   const atOrBelow = valid.filter((value) => value <= current).length;
   return { percentile: Math.round((atOrBelow / valid.length) * 100), sampleSize: valid.length };
+}
+
+export function ivPercentileLabel(input: { percentile: number | null; sampleSize: number }) {
+  if (input.percentile === null) return `近${input.sampleSize}次·样本不足`;
+  const position = input.percentile >= 70 ? "偏高" : input.percentile <= 30 ? "偏低" : "中位";
+  return `近${input.sampleSize}次·${input.sampleSize < 20 ? "初步" : ""}${position}`;
 }
 
 function buildHistoricalPositions(closes: number[], current: { rsi14: number | null; rv20: number | null; ma20: number | null }) {
@@ -226,30 +281,77 @@ function percentDistance(value: number | null, close: number) {
   return value === null || close <= 0 ? null : Math.abs(value / close - 1) * 100;
 }
 
-function stockAttention(input: {
+export function stockAttention(input: {
   close: number;
   marketStatus: string;
   optionsDate: string | null;
   gammaRegime: "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
-  expectedUpper: number | null;
-  expectedLower: number | null;
   callWall: number | null;
   putWall: number | null;
-  atmIv: number | null;
-  rv20: number | null;
+  dayOverDay: Awaited<ReturnType<typeof loadDayOverDayChange>> | null;
 }): { label: string; detail: string; score: number; tone: AttentionTone } {
-  if (!input.optionsDate) return { label: "期权数据待补充", detail: "价格趋势可用，期权结构暂不可判断", score: 95, tone: "warning" };
-  if (input.gammaRegime === "NEGATIVE") return { label: "负 Gamma 环境", detail: "短线波动可能更容易被放大", score: 92, tone: "negative" };
-
-  const rangeLevels = [
-    { label: "接近预期上沿", value: input.expectedUpper },
-    { label: "接近预期下沿", value: input.expectedLower },
-  ].map((item) => ({ ...item, distance: percentDistance(item.value, input.close) }))
-    .filter((item): item is typeof item & { distance: number } => item.distance !== null)
-    .sort((a, b) => a.distance - b.distance);
-  if (rangeLevels[0] && rangeLevels[0].distance <= 2.5) {
-    return { label: rangeLevels[0].label, detail: `距离约 ${rangeLevels[0].distance.toFixed(1)}%`, score: 84 - rangeLevels[0].distance, tone: "warning" };
+  const change = input.dayOverDay;
+  const gammaChanged = change
+    && change.gamma.previous !== "UNAVAILABLE"
+    && change.gamma.current !== "UNAVAILABLE"
+    && change.gamma.previous !== change.gamma.current;
+  if (gammaChanged) {
+    const labels = { POSITIVE: "正 Gamma", NEGATIVE: "负 Gamma", NEUTRAL: "Gamma 中性", UNAVAILABLE: "Gamma 暂无" } as const;
+    const tone = change.gamma.current === "NEGATIVE" ? "negative" : change.gamma.current === "POSITIVE" ? "positive" : "warning";
+    return {
+      label: "Gamma 状态切换",
+      detail: `${labels[change.gamma.previous]} → ${labels[change.gamma.current]}`,
+      score: 100,
+      tone,
+    };
   }
+
+  if (change?.trendScoreDelta !== null && change?.trendScoreDelta !== undefined && Math.abs(change.trendScoreDelta) >= 10) {
+    const rising = change.trendScoreDelta > 0;
+    return {
+      label: rising ? "趋势分显著上升" : "趋势分显著下降",
+      detail: `较昨日 ${rising ? "+" : ""}${change.trendScoreDelta} 分`,
+      score: 90,
+      tone: rising ? "positive" : "negative",
+    };
+  }
+
+  if (change?.expectedRange.state === "ABOVE" || change?.expectedRange.state === "BELOW") {
+    const above = change.expectedRange.state === "ABOVE";
+    return {
+      label: above ? "上破昨日预期上沿" : "下破昨日预期下沿",
+      detail: change.expectedRange.boundaryDistancePct === null
+        ? "当前收盘已越过昨日预期边界"
+        : `越过边界约 ${change.expectedRange.boundaryDistancePct.toFixed(1)}%`,
+      score: 80,
+      tone: above ? "warning" : "negative",
+    };
+  }
+
+  const callWallMovePct = change?.callWall.delta === null || change?.callWall.delta === undefined || input.close <= 0
+    ? null
+    : Math.abs(change.callWall.delta) / input.close * 100;
+  if (callWallMovePct !== null && callWallMovePct >= 2) {
+    const rising = change!.callWall.delta! > 0;
+    return {
+      label: rising ? "看涨墙显著上移" : "看涨墙显著下移",
+      detail: `较昨日移动约收盘价的 ${callWallMovePct.toFixed(1)}%`,
+      score: 70,
+      tone: "warning",
+    };
+  }
+
+  const relativeVolume = change?.relativeVolume.relativeVolume ?? null;
+  if (relativeVolume !== null && relativeVolume >= 1.5) {
+    return {
+      label: "成交量明显放大",
+      detail: `RVOL ${relativeVolume.toFixed(1)}×（相对20日均量）`,
+      score: 60,
+      tone: "warning",
+    };
+  }
+
+  if (input.gammaRegime === "NEGATIVE") return { label: "负 Gamma 环境", detail: "短线波动可能更容易被放大", score: 50, tone: "negative" };
 
   const wallLevels = [
     { label: "接近看涨墙", value: input.callWall },
@@ -258,21 +360,19 @@ function stockAttention(input: {
     .filter((item): item is typeof item & { distance: number } => item.distance !== null)
     .sort((a, b) => a.distance - b.distance);
   if (wallLevels[0] && wallLevels[0].distance <= 3) {
-    return { label: wallLevels[0].label, detail: `距离约 ${wallLevels[0].distance.toFixed(1)}%`, score: 76 - wallLevels[0].distance, tone: "warning" };
+    return { label: wallLevels[0].label, detail: `距离约 ${wallLevels[0].distance.toFixed(1)}%`, score: 40 - wallLevels[0].distance, tone: "warning" };
   }
 
-  if (input.atmIv !== null && input.rv20 !== null && input.rv20 > 0 && input.atmIv / input.rv20 >= 1.35) {
-    return { label: "隐含波动明显偏高", detail: "IV 高于近期实际波动", score: 68, tone: "warning" };
-  }
-  if (input.marketStatus === "STRONG_BULLISH") return { label: "趋势强势偏多", detail: "价格与均线结构保持强势", score: 52, tone: "positive" };
-  if (input.marketStatus === "BEARISH") return { label: "趋势偏空", detail: "价格处于偏弱趋势结构", score: 56, tone: "negative" };
+  if (!input.optionsDate) return { label: "期权数据待补充", detail: "价格趋势可用，期权结构暂不可判断", score: 30, tone: "warning" };
+  if (input.marketStatus === "STRONG_BULLISH") return { label: "趋势强势偏多", detail: "价格与均线结构保持强势", score: 25, tone: "positive" };
+  if (input.marketStatus === "BEARISH") return { label: "趋势偏空", detail: "价格处于偏弱趋势结构", score: 25, tone: "negative" };
   return { label: "结构暂无明显异常", detail: "进入详情查看完整依据", score: 20, tone: "neutral" };
 }
 
 async function loadStockCards() {
   const prisma = getPrisma();
   return Promise.all(SUPPORTED_SYMBOLS.map(async (symbol) => {
-    const [metrics, ivHistory] = await Promise.all([
+    const [metrics, ivHistory, historyCount] = await Promise.all([
       prisma.stockMetrics.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" } }),
       prisma.$queryRaw<Array<{ tradeDate: Date; atmIv: number }>>`
         WITH recent_dates AS (
@@ -310,6 +410,7 @@ async function loadStockCards() {
         GROUP BY options.trade_date
         ORDER BY options.trade_date ASC
       `,
+      prisma.stockDaily.count({ where: { symbol } }),
     ]);
     if (!metrics) {
       return {
@@ -321,12 +422,13 @@ async function loadStockCards() {
         close: null,
         dailyChangePct: null,
         trendScore: null,
+        trendConfidence: calculateTrendConfidence({ ma20: null, ma50: null, ma200: null, historyCount }),
         marketStatus: "INSUFFICIENT_DATA" as const,
         gammaRegime: "UNAVAILABLE" as const,
         attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
         dayOverDay: null,
         relativeVolume: null,
-        ivPercentile: { percentile: null, sampleSize: 0, label: "样本积累中" },
+        ivPercentile: { percentile: null, sampleSize: 0, label: "近0次·样本不足" },
         dataDate: null,
       };
     }
@@ -343,40 +445,39 @@ async function loadStockCards() {
       contractMultiplier: row.contractMultiplier,
     })), close).regime;
     const optionsDate = metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null;
+    const ma20 = numberOrNull(metrics.ma20);
+    const ma50 = numberOrNull(metrics.ma50);
+    const ma200 = numberOrNull(metrics.ma200);
     const trendScore = calculateTrendScore({
       close,
-      ma20: numberOrNull(metrics.ma20),
-      ma50: numberOrNull(metrics.ma50),
-      ma200: numberOrNull(metrics.ma200),
+      ma20,
+      ma50,
+      ma200,
       rsi14: numberOrNull(metrics.rsi14),
     });
-    const ivRank = percentileRank(ivHistory.map((row) => Number(row.atmIv)), numberOrNull(metrics.atmIv), 8);
+    const trendConfidence = calculateTrendConfidence({ ma20, ma50, ma200, historyCount });
+    const ivRank = percentileRank(ivHistory.map((row) => Number(row.atmIv)), numberOrNull(metrics.atmIv), 1);
     const ivPercentile = {
       ...ivRank,
-      label: ivRank.percentile === null ? "样本积累中" : ivRank.percentile >= 70 ? "历史偏高" : ivRank.percentile <= 30 ? "历史偏低" : "历史中位",
+      label: ivPercentileLabel(ivRank),
     };
-    const [attention, dayOverDay] = await Promise.all([
-      Promise.resolve(stockAttention({
+    const dayOverDay = await loadDayOverDayChange({
+      symbol,
+      currentTradeDate: metrics.tradeDate,
+      currentOptionsTradeDate: metrics.optionsTradeDate,
+      currentTrendScore: trendScore,
+      currentClose: close,
+      currentOptionRows: optionRows,
+    });
+    const attention = stockAttention({
       close,
       marketStatus: metrics.marketStatus,
       optionsDate,
       gammaRegime,
-      expectedUpper: numberOrNull(metrics.expectedUpper),
-      expectedLower: numberOrNull(metrics.expectedLower),
       callWall: numberOrNull(metrics.callWall),
       putWall: numberOrNull(metrics.putWall),
-      atmIv: numberOrNull(metrics.atmIv),
-      rv20: numberOrNull(metrics.rv20),
-      })),
-      loadDayOverDayChange({
-        symbol,
-        currentTradeDate: metrics.tradeDate,
-        currentOptionsTradeDate: metrics.optionsTradeDate,
-        currentTrendScore: trendScore,
-        currentClose: close,
-        currentOptionRows: optionRows,
-      }),
-    ]);
+      dayOverDay,
+    });
     return {
       symbol,
       name: STOCKS[symbol].name,
@@ -386,6 +487,7 @@ async function loadStockCards() {
       close,
       dailyChangePct: numberOrNull(metrics.dailyChangePct),
       trendScore,
+      trendConfidence,
       marketStatus: metrics.marketStatus,
       gammaRegime,
       attention,
@@ -397,7 +499,7 @@ async function loadStockCards() {
   }));
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v10"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v11"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();
@@ -603,7 +705,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v11"],
+  ["stock-dashboard-bundle-v12"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

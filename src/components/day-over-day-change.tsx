@@ -2,13 +2,20 @@ import { money } from "@/lib/format";
 
 type GammaRegime = "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
 
+export type ExpectedRangeState = "ABOVE" | "BELOW" | "NEAR_UPPER" | "NEAR_LOWER" | "INSIDE" | "UNAVAILABLE";
+
 export type DayOverDayChange = {
   previousStockDate: string | null;
   previousOptionsDate: string | null;
   trendScoreDelta: number | null;
   gamma: { previous: GammaRegime; current: GammaRegime };
   callWall: { previous: number | null; current: number | null; delta: number | null };
-  expectedUpperDistancePct: number | null;
+  expectedRange: {
+    lower: number | null;
+    upper: number | null;
+    state: ExpectedRangeState;
+    boundaryDistancePct: number | null;
+  };
   relativeVolume?: { averageVolume: number | null; relativeVolume: number | null };
 };
 
@@ -23,9 +30,19 @@ function signedNumber(value: number) {
   return `${value > 0 ? "+" : ""}${value}`;
 }
 
+const expectedRangePresentation: Record<ExpectedRangeState, { label: string; tone: string }> = {
+  ABOVE: { label: "上破昨日预期上沿", tone: "warning" },
+  BELOW: { label: "下破昨日预期下沿", tone: "warning" },
+  NEAR_UPPER: { label: "接近昨日预期上沿", tone: "warning" },
+  NEAR_LOWER: { label: "接近昨日预期下沿", tone: "warning" },
+  INSIDE: { label: "处于昨日预期区间内", tone: "neutral" },
+  UNAVAILABLE: { label: "昨日预期区间暂无", tone: "neutral" },
+};
+
 export function dayOverDayItems(change: DayOverDayChange | null) {
   if (!change) return [];
   const gammaChanged = change.gamma.previous !== change.gamma.current;
+  const expectedRangeState = change.expectedRange?.state ?? "UNAVAILABLE";
   return [
     {
       label: change.trendScoreDelta === null ? "趋势分暂无对比" : `趋势分 ${signedNumber(change.trendScoreDelta)}`,
@@ -48,12 +65,7 @@ export function dayOverDayItems(change: DayOverDayChange | null) {
       tone: "neutral",
     },
     {
-      label: change.expectedUpperDistancePct === null
-        ? "预期上沿暂无"
-        : change.expectedUpperDistancePct >= 0
-          ? `距预期上沿 ${Math.abs(change.expectedUpperDistancePct).toFixed(1)}%`
-          : `高于预期上沿 ${Math.abs(change.expectedUpperDistancePct).toFixed(1)}%`,
-      tone: change.expectedUpperDistancePct !== null && change.expectedUpperDistancePct < 0 ? "warning" : "neutral",
+      ...expectedRangePresentation[expectedRangeState],
     },
   ];
 }

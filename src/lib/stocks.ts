@@ -18,6 +18,14 @@ export const STOCKS = {
   XLE: { name: "能源精选行业 SPDR ETF", shortName: "能源 ETF", accent: "#ee9d36", assetType: "ETF" },
   XLU: { name: "公用事业精选行业 SPDR ETF", shortName: "公用事业 ETF", accent: "#42b9bc", assetType: "ETF" },
   XLV: { name: "医疗保健精选行业 SPDR ETF", shortName: "医疗 ETF", accent: "#68bf83", assetType: "ETF" },
+  MVRL: { name: "ETRACS 1.5倍房贷 REIT ETN", shortName: "房贷 REIT ETN", accent: "#8b74d6", assetType: "ETF" },
+  SPCX: { name: "SpaceX", shortName: "SpaceX", accent: "#d9dde3", assetType: "STOCK" },
+  CRCL: { name: "Circle", shortName: "Circle", accent: "#2775ca", assetType: "STOCK" },
+  INTC: { name: "英特尔 Intel", shortName: "英特尔", accent: "#0071c5", assetType: "STOCK" },
+  GOOG: { name: "谷歌 Alphabet C", shortName: "谷歌 C", accent: "#4285f4", assetType: "STOCK" },
+  AMD: { name: "超威半导体 AMD", shortName: "AMD", accent: "#ed1c24", assetType: "STOCK" },
+  IGV: { name: "iShares 软件行业 ETF", shortName: "软件 ETF", accent: "#7c8fe8", assetType: "ETF" },
+  UVIX: { name: "2倍做多 VIX 期货 ETF", shortName: "VIX 2倍 ETF", accent: "#b86bff", assetType: "ETF" },
 } as const;
 
 export type SupportedSymbol = keyof typeof STOCKS;
@@ -27,6 +35,8 @@ export type SupportedSymbol = keyof typeof STOCKS;
 export const STOCK_HISTORY_START_DATES: Partial<Record<SupportedSymbol, string>> = {
   DRAM: "2026-04-02",
   SKHY: "2026-07-10",
+  SPCX: "2026-06-12",
+  CRCL: "2025-06-05",
 };
 
 export const SUPPORTED_SYMBOLS = Object.keys(STOCKS) as SupportedSymbol[];

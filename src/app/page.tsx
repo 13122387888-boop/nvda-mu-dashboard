@@ -1,6 +1,7 @@
 import { connection } from "next/server";
 import { Footer, Header } from "@/components/site-chrome";
 import { StockScanner } from "@/components/stock-scanner";
+import { sanitizeError } from "@/lib/env";
 import { getStockCards, STOCKS, SUPPORTED_SYMBOLS } from "@/lib/services/stock-dashboard-service";
 
 export default async function Home() {
@@ -8,7 +9,8 @@ export default async function Home() {
   let cards;
   try {
     cards = await getStockCards();
-  } catch {
+  } catch (error) {
+    console.error(`[HOME] Stock cards unavailable: ${sanitizeError(error)}`);
     cards = SUPPORTED_SYMBOLS.map((symbol) => ({
       symbol,
       ...STOCKS[symbol],

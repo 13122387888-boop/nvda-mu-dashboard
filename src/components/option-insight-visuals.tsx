@@ -17,15 +17,16 @@ type WallProfile = {
 function WallCard({ label, tone, profile }: { label: string; tone: "call" | "put"; profile: WallProfile }) {
   const strength = profile.strength ?? 0;
   const persistence = profile.persistenceSnapshots;
+  const historyLabel = persistence === 0 ? "暂无墙位记录" : persistence === 1 ? "只有1份记录" : `连续 ${persistence} 份记录`;
   return (
     <article className={`wall-strength-card ${tone}`}>
       <div><span>{label}</span><strong>{money(profile.strike)}</strong></div>
-      <div className="wall-strength-score"><b>{profile.strength ?? "—"}</b><small>/ 100 强度</small></div>
+      <div className="wall-strength-score"><b>{profile.strength ?? "—"}</b><small>/ 100 集中强度</small></div>
       <div className="wall-strength-track" aria-label={`${label}强度 ${profile.strength ?? "暂无"}`}><i style={{ width: `${strength}%` }} /></div>
       <dl>
-        <div><dt>OI 集中度</dt><dd>{percent(profile.share)}</dd></div>
-        <div><dt>领先第二名</dt><dd>{profile.dominance === null ? "—" : `${profile.dominance.toFixed(2)}×`}</dd></div>
-        <div><dt>连续出现</dt><dd>{persistence ? `${persistence} 个快照` : "—"}</dd></div>
+        <div><dt>占同侧全部未平仓量</dt><dd>{percent(profile.share)}</dd></div>
+        <div><dt>是第二名的</dt><dd>{profile.dominance === null ? "—" : `${profile.dominance.toFixed(2)}×`}</dd></div>
+        <div><dt>近期记录</dt><dd>{persistence ? historyLabel : "—"}</dd></div>
       </dl>
     </article>
   );
@@ -35,12 +36,12 @@ export function WallStrengthVisual({ call, put }: { call: WallProfile; put: Wall
   return (
     <section className="visual-card wall-strength-visual" aria-labelledby="wall-strength-title">
       <div className="visual-card-heading">
-        <div><span>墙位质量</span><strong id="wall-strength-title">强度与持续性</strong></div>
-        <small>越集中、越领先、连续出现越值得关注</small>
+        <div><span>这个墙位明显吗</span><strong id="wall-strength-title">集中强度与近期稳定性</strong></div>
+        <small>强度看集中程度；记录数量单独看是否持续</small>
       </div>
       <div className="wall-strength-grid"><WallCard label="看涨墙" tone="call" profile={call} /><WallCard label="看跌墙" tone="put" profile={put} /></div>
-      <p><b>怎么读：</b>强度综合该价位占同侧总 OI 的比例和对第二大价位的领先幅度；连续出现表示近期数据快照中墙位未变。</p>
-      <small>强度是页面内部的相对分数，不代表该价位一定形成支撑或阻力；快照不等同于连续交易日。</small>
+      <p><b>怎么算：</b>集中强度只由“占同侧全部未平仓量的比例”和“领先第二名多少”计算；连续记录不参与分数。</p>
+      <small>分数不是上涨或守住的概率，也不保证形成支撑或阻力；保存记录不一定对应连续交易日。</small>
     </section>
   );
 }
@@ -79,38 +80,38 @@ export function IvStructureVisual({ currentIv, percentile, termStructure, skew }
   return (
     <section className="visual-card iv-structure-visual" aria-labelledby="iv-structure-title">
       <div className="visual-card-heading">
-        <div><span>波动位置</span><strong id="iv-structure-title">{view === "TERM" ? "IV 百分位＋期限结构" : "IV 偏斜"}</strong></div>
-        <div className="iv-view-switch" aria-label="切换波动定价视图"><button type="button" className={view === "TERM" ? "active" : ""} onClick={() => setView("TERM")}>期限结构</button><button type="button" className={view === "SKEW" ? "active" : ""} onClick={() => setView("SKEW")}>IV偏斜</button></div>
+        <div><span>期权预计的波动高不高</span><strong id="iv-structure-title">{view === "TERM" ? "和最近记录、不同到期日比较" : "Put 与 Call 的定价差"}</strong></div>
+        <div className="iv-view-switch" aria-label="切换期权波动比较"><button type="button" className={view === "TERM" ? "active" : ""} onClick={() => setView("TERM")}>不同到期日</button><button type="button" className={view === "SKEW" ? "active" : ""} onClick={() => setView("SKEW")}>Put/Call差异</button></div>
       </div>
       {view === "TERM" ? <><div className="iv-insight-grid">
         <div className="iv-percentile-card">
-          <span>近期历史位置</span><strong>{percentile.percentile === null ? "样本积累中" : `${percentile.percentile}%`}</strong><b>{percentile.label}</b>
+          <span>当前期权预估波动和最近记录比</span><strong>{percentile.percentile === null ? "样本积累中" : `比已有 ${percentile.percentile}% 的收盘记录更高`}</strong><b>{percentile.label}</b>
           <div className="iv-percentile-track" style={{ "--iv-position": `${percentilePosition}%` } as CSSProperties}><i /></div>
           <div><small>偏低</small><small>中位</small><small>偏高</small></div>
-          <p>{percentile.sampleSize} 个日终 ATM IV 快照样本</p>
+          <p>基于 {percentile.sampleSize} 份收盘记录</p>
         </div>
         <div className="iv-term-card">
-          <div><span>不同到期日 ATM IV</span><b>{points.length ? `${points[0].daysToExpiration}–${points.at(-1)!.daysToExpiration} 天` : "暂无"}</b></div>
+          <div><span>各到期日的期权预估波动</span><b>{points.length ? `${points[0].daysToExpiration}–${points.at(-1)!.daysToExpiration} 天` : "暂无"}</b></div>
           {points.length ? <>
-            <svg viewBox="0 0 100 100" role="img" aria-label="期权隐含波动率期限结构">
+            <svg viewBox="0 0 100 100" role="img" aria-label="不同到期日的期权预估波动">
               <path d={path} />
               {coordinates.map((point) => <circle cx={point.x} cy={point.y} r="2.4" key={point.expiration} />)}
             </svg>
             <div className="iv-term-labels">{coordinates.map((point) => <span key={point.expiration}><b>{point.daysToExpiration}天</b><small>{percent(point.atmIv)}</small></span>)}</div>
-          </> : <div className="mini-empty">暂无多到期日 IV 数据</div>}
+          </> : <div className="mini-empty">暂无多个到期日的波动数据</div>}
         </div>
       </div>
-      <p><b>怎么读：</b>百分位回答“当前 IV 在已有历史中高不高”；期限结构回答“近期事件风险还是远期不确定性被定价得更高”。</p>
-      <small>当前历史样本最多使用 60 个可用快照；样本较少时只做描述，不作长周期统计结论。</small>
+      <p><b>怎么读：</b>左侧看当前期权预估波动比最近记录高还是低；右侧只比较近月和远月哪个数值更高，不判断形成原因。</p>
+      <small>只使用页面已经保存的记录；样本较少时仅作短期比较，不代表长期历史位置。</small>
       </> : <div className="iv-skew-panel">
-        <div className="iv-skew-summary"><div><span>25Δ Put − 25Δ Call</span><strong>{skew.riskReversalVolPoints === null ? "—" : `${skew.riskReversalVolPoints >= 0 ? "+" : ""}${skew.riskReversalVolPoints.toFixed(1)} vol`}</strong><b>{skew.label}</b></div><small>{skew.expiration ? `${skew.expiration} · ${skew.daysToExpiration}天｜Put ${percent(skew.put25Iv)} · Call ${percent(skew.call25Iv)}` : "暂无定价到期日"}</small></div>
-        {skew.points.length >= 5 && skewValues.length ? <div className="iv-skew-chart"><div className="iv-skew-legend"><span><i className="call" />看涨 Call</span><span><i className="put" />看跌 Put</span><span>ATM IV {percent(currentIv)}</span></div><svg viewBox="0 0 100 100" role="img" aria-label={`IV偏斜曲线，${skew.label}`}>
+        <div className="iv-skew-summary"><div><span>Put IV 减去 Call IV</span><strong>{skew.riskReversalVolPoints === null ? "—" : `${skew.riskReversalVolPoints >= 0 ? "+" : ""}${skew.riskReversalVolPoints.toFixed(1)} 个波动率点`}</strong><b>{skew.label}</b></div><small>{skew.expiration ? `${skew.expiration} · ${skew.daysToExpiration}天｜Put ${percent(skew.put25Iv)} · Call ${percent(skew.call25Iv)}` : "暂无可用到期日"}</small></div>
+        {skew.points.length >= 5 && skewValues.length ? <div className="iv-skew-chart"><div className="iv-skew-legend"><span><i className="call" />看涨 Call</span><span><i className="put" />看跌 Put</span><span>现价附近 IV {percent(currentIv)}</span></div><svg viewBox="0 0 100 100" role="img" aria-label={`Put 与 Call 的期权预估波动差异，${skew.label}`}>
           {[0.8, 1, 1.2].map((mark) => <g key={mark}><line x1={skewX(mark)} x2={skewX(mark)} y1="15" y2="86" className={mark === 1 ? "atm-grid" : "skew-grid"} /><text x={skewX(mark)} y="97" textAnchor="middle">{Math.round(mark * 100)}%</text></g>)}
           <path d={skewPath("callIv")} className="call" /><path d={skewPath("putIv")} className="put" />
           {skew.points.map((point) => <g key={point.strike}>{point.callIv !== null && <circle cx={skewX(point.moneyness)} cy={skewY(point.callIv)} r="1.6" className="call" />}{point.putIv !== null && <circle cx={skewX(point.moneyness)} cy={skewY(point.putIv)} r="1.6" className="put" />}</g>)}
-        </svg><div className="iv-skew-axis">执行价 ÷ 现价</div></div> : <div className="sample-building"><strong>样本积累中</strong><span>{skew.reason}</span></div>}
-        <p><b>怎么读：</b>{skew.status === "AVAILABLE" ? `${skew.label}，说明两侧保护或追涨需求的相对定价存在差异。` : skew.reason}</p>
-        <small>偏斜反映相对定价与对冲需求，不预测价格方向；口径为接近30天的25Δ Put IV减25Δ Call IV。</small>
+        </svg><div className="iv-skew-axis">行权价相对现价</div></div> : <div className="sample-building"><strong>样本积累中</strong><span>{skew.reason}</span></div>}
+        <p><b>怎么读：</b>{skew.status === "AVAILABLE" ? `${skew.label}，表示 Put 和 Call 两侧的期权定价不同。` : skew.reason}</p>
+        <small>这里只比较两侧定价，不预测价格方向；计算选择至少7天、尽量接近30天，并且对价格敏感度相近的一组 Put 与 Call（Delta 约25%）。</small>
       </div>}
     </section>
   );

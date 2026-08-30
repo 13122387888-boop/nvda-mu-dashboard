@@ -8,7 +8,7 @@ export function Header() {
       <nav className="site-nav" aria-label="主导航">
         <Link href="/">首页</Link>
         <details className="stock-menu">
-          <summary>股票池</summary>
+          <summary>全部标的</summary>
           <div>
             {SUPPORTED_SYMBOLS.map((symbol) => <Link href={`/stocks/${symbol}`} key={symbol}><b>{symbol}</b><span>{STOCKS[symbol].shortName}</span></Link>)}
           </div>
@@ -22,8 +22,8 @@ export function Header() {
 export function Footer() {
   return (
     <footer className="disclaimer">
-      <span>收盘数据仅用于研究与产品验证。</span>
-      <span>数据源：OnclickMedia + 长桥 · 不构成投资建议。</span>
+      <span>页面根据收盘数据整理，仅供研究参考，不构成投资建议。</span>
+      <span>数据源：OnclickMedia + 长桥</span>
     </footer>
   );
 }

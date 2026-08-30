@@ -13,13 +13,13 @@ export async function generateMetadata({ params }: { params: Promise<{ symbol: s
   if (!isSupportedSymbol(symbol)) return {};
   return {
     title: `${symbol} 研究快照`,
-    description: `${STOCKS[symbol].name}的日终趋势、波动率和期权结构研究快照。`,
-    openGraph: { title: `${symbol} 研究快照`, description: `${STOCKS[symbol].name}日终研究快照。`, images: [] },
-    twitter: { card: "summary", title: `${symbol} 研究快照`, description: `${STOCKS[symbol].name}日终研究快照。`, images: [] },
+    description: `${STOCKS[symbol].name}的收盘趋势、近期波动和期权持仓摘要。`,
+    openGraph: { title: `${symbol} 研究快照`, description: `${STOCKS[symbol].name}收盘研究摘要。`, images: [] },
+    twitter: { card: "summary", title: `${symbol} 研究快照`, description: `${STOCKS[symbol].name}收盘研究摘要。`, images: [] },
   };
 }
 
-const gammaLabels = { POSITIVE: "正 Gamma 代理", NEGATIVE: "负 Gamma 代理", NEUTRAL: "Gamma 中性", UNAVAILABLE: "数据不足" } as const;
+const gammaLabels = { POSITIVE: "Gamma 正值（Call侧较大）", NEGATIVE: "Gamma 负值（Put侧较大）", NEUTRAL: "Gamma 两侧接近", UNAVAILABLE: "Gamma 数据不足" } as const;
 
 export default async function SnapshotPage({ params, searchParams }: { params: Promise<{ symbol: string }>; searchParams: Promise<{ window?: string | string[] }> }) {
   const symbol = (await params).symbol.toUpperCase();
@@ -56,7 +56,7 @@ export default async function SnapshotPage({ params, searchParams }: { params: P
     summary: brief.summary,
     trend: STATUS_LABELS[dashboard.quote.marketStatus],
     rsi: number(dashboard.trend.rsi14, 1),
-    volatility: `RV20 ${percent(dashboard.trend.rv20)} / IV ${percent(dashboard.options.atmIv)}`,
+    volatility: `近20日实际波动 ${percent(dashboard.trend.rv20)} / 期权预估波动 ${percent(dashboard.options.atmIv)}`,
     expectedRange: dashboard.options.expectedLower === null || dashboard.options.expectedUpper === null ? "暂无" : `${money(dashboard.options.expectedLower)}–${money(dashboard.options.expectedUpper)}`,
     callWall: money(dashboard.options.callWall),
     putWall: money(dashboard.options.putWall),
@@ -68,16 +68,16 @@ export default async function SnapshotPage({ params, searchParams }: { params: P
       <Header />
       <div className="snapshot-toolbar"><Link href={`/stocks/${symbol}${backQuery}`}>← 返回完整研究页</Link><SnapshotActions data={exportData} /></div>
       <section className="snapshot-card" aria-label={`${symbol} 研究快照`}>
-        <header><div><span>研究快照</span><b>{symbol}</b><h1>{dashboard.name}</h1></div><div><small>股票数据 {dashboard.stockDate}</small><small>期权数据 {dashboard.optionsDate ?? "暂无"}</small><small>期限 {dashboard.optionWindowLabel}</small><small>定价到期 {dashboard.optionsExpiration ?? "暂无"}</small></div></header>
+        <header><div><span>研究快照</span><b>{symbol}</b><h1>{dashboard.name}</h1></div><div><small>股票数据 {dashboard.stockDate}</small><small>期权数据 {dashboard.optionsDate ?? "暂无"}</small><small>统计期限 {dashboard.optionWindowLabel}</small><small>区间对应到期日 {dashboard.optionsExpiration ?? "暂无"}</small></div></header>
         <div className="snapshot-quote"><strong>{money(dashboard.quote.close)}</strong><span className={change !== null && change >= 0 ? "positive" : "negative"}>{exportData.change}</span></div>
         <p className="snapshot-summary">{brief.summary}</p>
         <div className="snapshot-metrics">
-          <article><span>趋势</span><strong>{STATUS_LABELS[dashboard.quote.marketStatus]}</strong><p>RSI14 {number(dashboard.trend.rsi14, 1)} · RV20 {percent(dashboard.trend.rv20)}</p></article>
-          <article><span>波动定价</span><strong>ATM IV {percent(dashboard.options.atmIv)}</strong><p>预期波动 ±{percent(dashboard.options.expectedMovePct)}</p></article>
+          <article><span>大方向</span><strong>{STATUS_LABELS[dashboard.quote.marketStatus]}</strong><p>短线强弱（RSI）{number(dashboard.trend.rsi14, 1)} · 近20日实际波动 {percent(dashboard.trend.rv20)}</p></article>
+          <article><span>期权预计波动</span><strong>{percent(dashboard.options.atmIv)}</strong><p>估算上下幅度 ±{percent(dashboard.options.expectedMovePct)}</p></article>
           <article><span>关键价位</span><strong>{money(dashboard.options.putWall)} – {money(dashboard.options.callWall)}</strong><p>看跌墙 – 看涨墙</p></article>
-          <article><span>期权结构</span><strong>{gammaLabels[dashboard.options.gammaExposure.regime]}</strong><p>最大痛点 {money(dashboard.options.maxPain)}</p></article>
+          <article><span>Gamma 偏向</span><strong>{gammaLabels[dashboard.options.gammaExposure.regime]}</strong><p>最近到期最大痛点 {money(dashboard.options.maxPain)}</p></article>
         </div>
-        <footer><span>基于公开日终数据的规则观察，数据变化后重新计算。</span><b>不构成投资建议</b></footer>
+        <footer><span>根据公开收盘数据整理，数据更新后会重新计算。</span><b>不构成投资建议</b></footer>
       </section>
     </main>
   );

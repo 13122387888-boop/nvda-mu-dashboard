@@ -4,9 +4,9 @@ import { useEffect, useState } from "react";
 import { money, percent } from "@/lib/format";
 
 const modules = [
-  { id: "module-price", index: "01", label: "价格", longLabel: "趋势与关键位" },
-  { id: "module-momentum", index: "02", label: "动量", longLabel: "动量与波动" },
-  { id: "module-options", index: "03", label: "期权", longLabel: "期权结构" },
+  { id: "module-price", index: "01", label: "价格", longLabel: "价格与关键位" },
+  { id: "module-momentum", index: "02", label: "近期", longLabel: "近期强弱与波动" },
+  { id: "module-options", index: "03", label: "期权", longLabel: "期权持仓与波动" },
 ] as const;
 
 type ModuleId = (typeof modules)[number]["id"];
@@ -62,8 +62,8 @@ export function ModuleJumpNav({
           <strong>{symbol}</strong>
           <span>{money(close)}</span>
           <span className={dailyChangePct === null ? "" : dailyChangePct >= 0 ? "positive" : "negative"}>{dailyChangePct === null ? "—" : `${dailyChangePct >= 0 ? "+" : ""}${percent(dailyChangePct, true)}`}</span>
-          <span>趋势 <b>{trendScore ?? "—"}</b></span>
-          <span className="context-confidence">数据完整度 {confidenceLabel}</span>
+          <span>趋势分 <b>{trendScore ?? "—"}</b></span>
+          <span className="context-confidence">趋势数据 {confidenceLabel}</span>
           <span className="context-window">{optionWindowLabel}</span>
         </div>
         <nav className="module-jump-nav" aria-label="研究模块快速导航">{moduleButtons()}</nav>

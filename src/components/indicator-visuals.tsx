@@ -30,27 +30,27 @@ export function GammaExposureVisual({
 }) {
   const max = Math.max(callGamma, putGamma, 1);
   const labels = {
-    POSITIVE: { title: "正 Gamma 代理", className: "stable", conclusion: "关键位附近更偏震荡与均值回归，潜在对冲流通常有抑制波动的倾向。" },
-    NEGATIVE: { title: "负 Gamma 代理", className: "amplify", conclusion: "突破关键位后波动可能被放大，追涨杀跌和跳空风险需要更高警惕。" },
-    NEUTRAL: { title: "Gamma 接近中性", className: "neutral", conclusion: "Call 与 Put 的 Gamma 代理较均衡，当前结构对价格的方向性影响不明确。" },
-    UNAVAILABLE: { title: "Gamma 数据不足", className: "neutral", conclusion: "当前期权数据不足以形成 Gamma 结构判断。" },
+    POSITIVE: { title: "正值：Call 侧估算较大", className: "stable", conclusion: "这里的正值只表示 Call 侧估算较大，不表示看涨。可继续观察关键位附近是否更容易震荡，但不能确认波动一定收敛。" },
+    NEGATIVE: { title: "负值：Put 侧估算较大", className: "amplify", conclusion: "这里的负值只表示 Put 侧估算较大，不表示看跌。可留意离开关键位后波动是否扩大，但不能确认波动一定放大。" },
+    NEUTRAL: { title: "Call 与 Put 两侧估算接近", className: "neutral", conclusion: "两侧估算值接近，当前没有明显偏向。" },
+    UNAVAILABLE: { title: "暂时算不出 Gamma", className: "neutral", conclusion: "当前期权数据不足，暂时无法比较两侧结构。" },
   } as const;
   const state = labels[regime];
 
   return (
     <div className={`visual-card gamma-visual ${state.className}`}>
       <div className="gamma-heading">
-        <div><MetricLabel metric="gammaProxy">GAMMA 结构代理</MetricLabel><strong>{state.title}</strong></div>
-        <div className="gamma-net"><span>净 Gamma / 标的变动 1%</span><b>{compactMoney(netGamma)}</b></div>
+        <div><MetricLabel metric="gammaProxy">Gamma 偏向哪一侧</MetricLabel><strong>{state.title}</strong></div>
+        <div className="gamma-net"><span>股价变动1%时，Delta 金额的净变化估算</span><b>{compactMoney(netGamma)}</b></div>
       </div>
       <div className="gamma-scale" role="img" aria-label={`Put Gamma 代理 ${compactMoney(putGamma)}，Call Gamma 代理 ${compactMoney(callGamma)}，当前${state.title}`}>
         <div className="gamma-side put"><i style={{ width: `${(putGamma / max) * 100}%` }} /></div>
         <i className="gamma-axis" />
         <div className="gamma-side call"><i style={{ width: `${(callGamma / max) * 100}%` }} /></div>
       </div>
-      <div className="gamma-labels"><span>看跌（Put）负向代理 <b>{compactMoney(putGamma)}</b></span><span>看涨（Call）正向代理 <b>{compactMoney(callGamma)}</b></span></div>
-      <p><b>结构结论：</b>{state.conclusion}</p>
-      <small>口径说明：按 Call 为正、Put 为负的公开 OI 约定估算。公开未平仓量无法识别实际持仓者及其多空方向，因此这不是做市商真实 Gamma，只用于观察结构。</small>
+      <div className="gamma-labels"><span>Put 侧（按负值计） <b>{compactMoney(putGamma)}</b></span><span>Call 侧（按正值计） <b>{compactMoney(callGamma)}</b></span></div>
+      <p><b>怎么看：</b>{state.conclusion}</p>
+      <small>这里只按公开未平仓量估算，无法识别谁持有、是买入还是卖出，因此不是真实做市商 Gamma。</small>
     </div>
   );
 }
@@ -72,9 +72,9 @@ export function TrendDeviation({
   const optionalContribution = (source: NullableNumber, contribution: number) => source === null ? "暂无" : signedContribution(contribution);
   const levels = [
     { label: "现价", value: close, className: "spot" },
-    { label: "50日均线", value: ma50, className: "ma50" },
-    { label: "100日均线", value: ma100, className: "ma100" },
-    { label: "200日均线", value: ma200, className: "ma200" },
+    { label: "50日线", value: ma50, className: "ma50" },
+    { label: "100日线", value: ma100, className: "ma100" },
+    { label: "200日线", value: ma200, className: "ma200" },
   ].filter((level): level is { label: string; value: number; className: string } => level.value !== null && Number.isFinite(level.value));
   const ordered = [...levels].sort((a, b) => a.value - b.value);
   const rawMin = Math.min(...ordered.map((level) => level.value));
@@ -93,8 +93,8 @@ export function TrendDeviation({
   return (
     <div className="visual-card trend-visual trend-position-map">
       <div className="visual-card-heading">
-        <div><span>趋势位置</span><div className="heading-with-help"><strong><MetricLabel metric="movingAverage">现价与均线位置</MetricLabel></strong></div></div>
-        <small>同一价格轴 · 直接比较</small>
+        <div><span>中长期方向</span><div className="heading-with-help"><strong><MetricLabel metric="movingAverage">现价和三条均线</MetricLabel></strong></div></div>
+        <small>看现价在均线上方还是下方</small>
       </div>
       <div className="level-map-scroll">
         <div className="level-map" role="img" aria-label="现价与50日、100日、200日均线价格位置图">
@@ -116,18 +116,18 @@ export function TrendDeviation({
       {breakdown ? (
         <details className="trend-score-breakdown">
           <summary>
-            <div><span>趋势分构成</span><small>点击展开计算过程</small></div>
+            <div><span>趋势分怎么算</span><small>点击查看加分和减分</small></div>
             <strong>{breakdown.score}<small>/100</small></strong>
           </summary>
           <div className="trend-score-parts">
             <article className="neutral"><span>基础分</span><strong>50.0</strong><small>中性起点</small></article>
-            <article className={contributionTone(breakdown.pricePosition.total)}><span>价格位置</span><strong>{signedContribution(breakdown.pricePosition.total)}</strong><small>50日 {optionalContribution(ma50, breakdown.pricePosition.ma50)} · 100日 {optionalContribution(ma100, breakdown.pricePosition.ma100)} · 200日 {optionalContribution(ma200, breakdown.pricePosition.ma200)}</small></article>
-            <article className={contributionTone(breakdown.alignment.total)}><span>均线排列</span><strong>{signedContribution(breakdown.alignment.total)}</strong><small>50/100日 {ma50 === null || ma100 === null ? "暂无" : signedContribution(breakdown.alignment.ma50VsMa100)} · 100/200日 {ma100 === null || ma200 === null ? "暂无" : signedContribution(breakdown.alignment.ma100VsMa200)}</small></article>
-            <article className={contributionTone(breakdown.momentum.contribution)}><span>RSI 动量</span><strong>{rsi14 === null ? "未参与" : signedContribution(breakdown.momentum.contribution)}</strong><small>RSI14 {rsi14 === null ? "暂无" : number(breakdown.momentum.rsi14, 1)}</small></article>
+            <article className={contributionTone(breakdown.pricePosition.total)}><span>现价与均线</span><strong>{signedContribution(breakdown.pricePosition.total)}</strong><small>50日 {optionalContribution(ma50, breakdown.pricePosition.ma50)} · 100日 {optionalContribution(ma100, breakdown.pricePosition.ma100)} · 200日 {optionalContribution(ma200, breakdown.pricePosition.ma200)}</small></article>
+            <article className={contributionTone(breakdown.alignment.total)}><span>均线顺序</span><strong>{signedContribution(breakdown.alignment.total)}</strong><small>50/100日 {ma50 === null || ma100 === null ? "暂无" : signedContribution(breakdown.alignment.ma50VsMa100)} · 100/200日 {ma100 === null || ma200 === null ? "暂无" : signedContribution(breakdown.alignment.ma100VsMa200)}</small></article>
+            <article className={contributionTone(breakdown.momentum.contribution)}><span>近期强弱（RSI）</span><strong>{rsi14 === null ? "未参与" : signedContribution(breakdown.momentum.contribution)}</strong><small>RSI {rsi14 === null ? "暂无" : number(breakdown.momentum.rsi14, 1)}</small></article>
           </div>
-          <footer>基础 50 {signedContribution(breakdown.pricePosition.total)} {signedContribution(breakdown.alignment.total)} {signedContribution(breakdown.momentum.contribution)} ＝ {breakdown.rawScore.toFixed(2)}；最终限制在 0–100 并四舍五入。它描述趋势结构，不是上涨概率。</footer>
+          <footer>从中性 50 分开始，根据现价和均线、均线顺序及 RSI 加减分，最后限制在 0–100。趋势分不是上涨概率。</footer>
         </details>
-      ) : <div className="trend-score-unavailable"><b>趋势分暂不可算</b><span>至少需要两条完整均线；新上市标的会随历史数据积累自动出现分数。</span></div>}
+      ) : <div className="trend-score-unavailable"><b>历史数据还不够</b><span>至少有两条完整均线后，才会显示趋势分。</span></div>}
     </div>
   );
 }
@@ -149,34 +149,34 @@ export function MomentumVisual({
   const bollPositionLabel = bollinger.percentB === null
     ? "位置暂无"
     : bollinger.percentB >= 1
-      ? "上轨外"
+      ? "高于上轨"
       : bollinger.percentB >= 0.75
-        ? "上轨附近"
-        : bollinger.percentB >= 0.5
-          ? "中轨上方"
-          : bollinger.percentB >= 0.25
-            ? "中轨下方"
-            : bollinger.percentB >= 0
-              ? "下轨附近"
-              : "下轨外";
+        ? "靠近上轨"
+      : bollinger.percentB >= 0.5
+          ? "位于中轨上方"
+        : bollinger.percentB >= 0.25
+            ? "位于中轨下方"
+          : bollinger.percentB >= 0
+              ? "靠近下轨"
+              : "低于下轨";
   const bollState = {
-    SQUEEZE: "带宽收口",
-    WIDE: "带宽偏宽",
-    NORMAL: "带宽常态",
-    UNAVAILABLE: "状态积累中",
+    SQUEEZE: "通道偏窄",
+    WIDE: "通道偏宽",
+    NORMAL: "通道宽度正常",
+    UNAVAILABLE: "数据积累中",
   }[bollinger.state];
   const hasBollinger = bollinger.lower !== null && bollinger.middle !== null && bollinger.upper !== null && bollinger.percentB !== null;
 
   return (
     <div className="momentum-visual-grid">
       <div className="visual-card rsi-visual">
-        <div className="visual-card-heading"><div><span>动量强弱</span><div className="heading-with-help"><strong><MetricLabel metric="rsi14">RSI 14</MetricLabel></strong></div></div><b>{number(rsi)}</b></div>
+        <div className="visual-card-heading"><div><span>最近涨跌力度</span><div className="heading-with-help"><strong><MetricLabel metric="rsi14">短线强弱（RSI）</MetricLabel></strong></div></div><b>{number(rsi)}</b></div>
         <div className="rsi-track" style={{ "--rsi-position": `${rsiPosition}%` } as CSSProperties} role="img" aria-label={`RSI14 ${number(rsi)}，${rsiLabel}`}><i /></div>
-        <div className="rsi-labels"><span>超卖 30</span><b>{rsiLabel}</b><span>超买 70</span></div>
+        <div className="rsi-labels"><span>偏冷参考 30</span><b>{rsiLabel}</b><span>偏热参考 70</span></div>
       </div>
       <div className="visual-card bollinger-visual">
         <div className="visual-card-heading">
-          <div><span>价格状态</span><div className="heading-with-help"><strong><MetricLabel metric="bollinger">BOLL 20,2</MetricLabel></strong></div></div>
+          <div><span>价格在近期通道哪里</span><div className="heading-with-help"><strong><MetricLabel metric="bollinger">布林带（BOLL）</MetricLabel></strong></div></div>
           <b>{bollPositionLabel}</b>
         </div>
         {!hasBollinger ? <div className="mini-empty">至少需要 20 个交易日数据</div> : <>
@@ -188,8 +188,8 @@ export function MomentumVisual({
           <div className="bollinger-labels"><span>下轨<b>{money(bollinger.lower)}</b></span><span>中轨<b>{money(bollinger.middle)}</b></span><span>上轨<b>{money(bollinger.upper)}</b></span></div>
         </>}
         <div className="bollinger-summary">
-          <span><b>{bollState}</b><small>{bollinger.bandwidthPercentile === null ? `近${bollinger.sampleSize}日·样本积累中` : `带宽处于近${bollinger.sampleSize}日第 ${bollinger.bandwidthPercentile} 分位`}</small></span>
-          <span><b>{bollinger.percentB === null ? "%B —" : `%B ${number(bollinger.percentB, 2)}`}</b><small>带宽 {percent(bollinger.bandwidth)} · RV20 {percent(realizedVolatility)}</small></span>
+          <span><b>{bollState}</b><small>{bollinger.bandwidthPercentile === null ? `已有 ${bollinger.sampleSize} 个读数，仍在积累` : `当前宽度高于或等于约 ${bollinger.bandwidthPercentile}% 的已有读数`}</small></span>
+          <span><b>{bollinger.percentB === null ? "带内位置 —" : `带内位置 ${number(bollinger.percentB, 2)}`}</b><small>通道宽度 {percent(bollinger.bandwidth)} · 近20日实际波动 {percent(realizedVolatility)}</small></span>
         </div>
       </div>
     </div>
@@ -201,26 +201,25 @@ export function MomentumInformation({ rsi, realizedVolatility, atmIv }: { rsi: N
   const dailyProxy = realizedVolatility === null ? null : realizedVolatility / Math.sqrt(252);
   const ratio = realizedVolatility === null || realizedVolatility <= 0 || atmIv === null ? null : atmIv / realizedVolatility;
   const spread = realizedVolatility === null || atmIv === null ? null : atmIv - realizedVolatility;
-  const rsiState = rsi === null ? "数据不足" : rsi >= 70 ? "动量偏热" : rsi <= 30 ? "动量偏冷" : rsi >= 55 ? "动量偏强" : rsi <= 45 ? "动量偏弱" : "动量中性";
-  const pricingState = ratio === null ? "数据不足" : ratio >= 1.2 ? "隐含波动较高" : ratio <= 0.8 ? "隐含波动较低" : "两者接近";
+  const rsiState = rsi === null ? "数据不足" : rsi >= 70 ? "近期偏热" : rsi <= 30 ? "近期偏冷" : rsi >= 55 ? "近期偏强" : rsi <= 45 ? "近期偏弱" : "近期中性";
+  const pricingState = ratio === null ? "数据不足" : ratio >= 1.2 ? "期权预估更高" : ratio <= 0.8 ? "期权预估更低" : "两者接近";
 
   return (
     <div className="visual-card momentum-information">
       <div className="visual-card-heading">
-        <div><span>波动定价</span><strong>隐含波动与实际波动</strong></div>
-        <small>IV 与 RV 仅作定价比较</small>
+        <div><span>市场预计会晃多大</span><strong>期权预估与近期实际波动</strong></div>
+        <small>只比较波动大小，不判断涨跌</small>
       </div>
-      <div className="volatility-bars" role="img" aria-label={`实现波动率 ${percent(realizedVolatility)}，平值隐含波动率 ${percent(atmIv)}`}>
-        <div><MetricLabel metric="rv20">过去20日实际波动 RV20</MetricLabel><b>{percent(realizedVolatility)}</b><i><em style={{ width: `${((realizedVolatility ?? 0) / maxVol) * 100}%` }} /></i></div>
-        <div><MetricLabel metric="atmIv">最近到期平值期权 ATM IV</MetricLabel><b>{percent(atmIv)}</b><i><em className="implied" style={{ width: `${((atmIv ?? 0) / maxVol) * 100}%` }} /></i></div>
+      <div className="volatility-bars" role="img" aria-label={`近20日实际波动 ${percent(realizedVolatility)}，期权预估波动 ${percent(atmIv)}`}>
+        <div><MetricLabel metric="rv20">近20日实际波动</MetricLabel><b>{percent(realizedVolatility)}</b><i><em style={{ width: `${((realizedVolatility ?? 0) / maxVol) * 100}%` }} /></i></div>
+        <div><MetricLabel metric="atmIv">期权预估波动（ATM IV）</MetricLabel><b>{percent(atmIv)}</b><i><em className="implied" style={{ width: `${((atmIv ?? 0) / maxVol) * 100}%` }} /></i></div>
       </div>
       <div className="momentum-info-grid">
-        <article><span>走势是否过热</span><strong>{rsiState}</strong><p>RSI14 为 {number(rsi)}；70以上偏热，30以下偏冷，中间区域用于观察强弱变化。</p></article>
-        <article><span>近期日波动参考</span><strong>{dailyProxy === null ? "—" : `约 ±${percent(dailyProxy)}`}</strong><p>由 RV20 ÷ √252 折算，只是历史日波动尺度，不是下一交易日预测区间。</p></article>
-        <article><span>期权如何定价波动</span><strong>{pricingState}</strong><p>{ratio === null ? "需要同时具备 ATM IV 与 RV20。" : `IV / RV 为 ${ratio.toFixed(2)} 倍，差值 ${spread! >= 0 ? "+" : ""}${(spread! * 100).toFixed(1)} 个百分点。`}</p></article>
+        <article><span>最近涨跌力度</span><strong>{rsiState}</strong><p>RSI 为 {number(rsi)}；70以上偏热，30以下偏冷，中间区域用来观察强弱变化。</p></article>
+        <article><span>近期一天通常晃多大</span><strong>{dailyProxy === null ? "—" : `约 ±${percent(dailyProxy)}`}</strong><p>由近20日实际波动折算，只是历史参考，不是明天的预测范围。</p></article>
+        <article><span>期权预估比过去高还是低</span><strong>{pricingState}</strong><p>{ratio === null ? "需要同时有期权预估和近20日实际波动。" : `期权预估是近期实际波动的 ${ratio.toFixed(2)} 倍，相差 ${spread! >= 0 ? "+" : ""}${(spread! * 100).toFixed(1)} 个百分点。`}</p></article>
       </div>
-      <p className="momentum-takeaway"><b>可以获取：</b>当前动量位置、过去20日实际波动尺度，以及期权隐含波动相对近期实际波动是更高、更低还是接近。</p>
-      <small>隐含波动较高不等于期权一定昂贵，较低也不等于一定便宜；到期时间、事件风险和波动偏斜仍会影响期权价格。</small>
+      <small>高低只是相对比较，不等于期权一定贵或便宜；到期时间和事件风险也会影响价格。</small>
     </div>
   );
 }
@@ -231,6 +230,7 @@ export function ExpectedRangeVisual({
   upper,
   expectedMove,
   expectedMovePct,
+  expiration,
   maxPain,
   callWall,
   putWall,
@@ -240,13 +240,14 @@ export function ExpectedRangeVisual({
   upper: NullableNumber;
   expectedMove: NullableNumber;
   expectedMovePct: NullableNumber;
+  expiration: string | null;
   maxPain: NullableNumber;
   callWall: NullableNumber;
   putWall: NullableNumber;
 }) {
   const points = [
-    { label: "预期下沿", value: lower, className: "lower" },
-    { label: "预期上沿", value: upper, className: "upper" },
+    { label: "期权估算下沿", value: lower, className: "lower" },
+    { label: "期权估算上沿", value: upper, className: "upper" },
     { label: "现价", value: close, className: "spot" },
     { label: "最大痛点", value: maxPain, className: "pain" },
     { label: "看涨墙", value: callWall, className: "call-wall" },
@@ -263,11 +264,11 @@ export function ExpectedRangeVisual({
   return (
     <div className="visual-card range-visual">
       <div className="visual-card-heading">
-        <div><MetricLabel metric="expectedRange">到期预期区间</MetricLabel><strong>{expectedMove === null ? "暂无数据" : `± ${money(expectedMove)}`}</strong></div>
+        <div><MetricLabel metric="expectedRange">最近到期期权估算区间</MetricLabel><strong>{expectedMove === null ? "暂无数据" : `上下各 ${money(expectedMove)}`}</strong><small>{expiration ? `对应到期日 ${expiration}` : "暂无可用到期日"}</small></div>
         <b>{expectedMovePct === null ? "—" : `± ${percent(expectedMovePct)}`}</b>
       </div>
-      {lower === null || upper === null ? <div className="mini-empty">暂无可用期权区间</div> : <>
-        <div className="range-plot" role="img" aria-label={`预期价格区间 ${money(lower)} 至 ${money(upper)}，并标注现价、最大痛点、看涨墙和看跌墙`}>
+      {lower === null || upper === null ? <div className="mini-empty">暂时无法计算期权估算区间</div> : <>
+        <div className="range-plot" role="img" aria-label={`期权估算区间 ${money(lower)} 至 ${money(upper)}，并标出现价、最大痛点、看涨墙和看跌墙`}>
           <i className="range-axis" />
           <i className="range-band" style={{ left: `${position(lower)}%`, width: `${Math.max(position(upper) - position(lower), 1)}%` }} />
           {points.map((point, index) => {
@@ -287,18 +288,18 @@ export function PutCallVisual({ ratio, atmIv }: { ratio: NullableNumber; atmIv: 
   return (
     <div className="visual-card put-call-visual">
       <div className="visual-card-heading put-call-heading">
-        <div><MetricLabel metric="putCallOi">持仓结构</MetricLabel><strong>看涨 / 看跌未平仓量</strong></div>
-        <b>{number(ratio)} <small>未平仓量比（Put/Call）</small></b>
+        <div><MetricLabel metric="putCallOi">Call 和 Put 哪边更多</MetricLabel><strong>未结束期权合约占比</strong></div>
+        <b>{number(ratio)} <small>Put ÷ Call</small></b>
       </div>
       <div className="put-call-bar" role="img" aria-label={`Call 占 ${Math.round(callShare * 100)}%，Put 占 ${Math.round(putShare * 100)}%`}>
         <i className="call" style={{ width: `${callShare * 100}%` }} />
         <i className="put" style={{ width: `${putShare * 100}%` }} />
       </div>
       <div className="put-call-sides">
-        <div className="call"><span>看涨（Call）</span><strong>{Math.round(callShare * 100)}%</strong><small>看涨未平仓量占比</small></div>
-        <div className="put"><span>看跌（Put）</span><strong>{Math.round(putShare * 100)}%</strong><small>看跌未平仓量占比</small></div>
+        <div className="call"><span>Call</span><strong>{Math.round(callShare * 100)}%</strong><small>占全部未平仓量</small></div>
+        <div className="put"><span>Put</span><strong>{Math.round(putShare * 100)}%</strong><small>占全部未平仓量</small></div>
       </div>
-      <small className="put-call-note">平值隐含波动率 {percent(atmIv)}</small>
+      <small className="put-call-note">最近到期期权预估波动（ATM IV）{percent(atmIv)}</small>
     </div>
   );
 }

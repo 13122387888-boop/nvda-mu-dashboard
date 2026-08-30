@@ -19,7 +19,7 @@ describe("calculateIvSkew", () => {
     const result = calculateIvSkew(chain, 100);
     expect(result.status).toBe("AVAILABLE");
     expect(result.riskReversalVolPoints).toBeCloseTo(6);
-    expect(result.label).toBe("下行保护偏贵");
+    expect(result.label).toBe("Put侧 IV 更高");
   });
 
   it("rejects zero-IV and thin chains", () => {

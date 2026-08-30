@@ -46,7 +46,7 @@ export function SectionPager({ label, tabs, accent }: { label: string; tabs: Pag
       <div className="section-tabs" role="tablist" aria-label={label}>
         {tabs.map((tab, index) => (
           <button type="button" role="tab" aria-selected={active === index} aria-controls={`${tab.id}-panel`} id={`${tab.id}-tab`} className={active === index ? "active" : ""} onClick={() => setActive(index)} key={tab.id}>
-            <span>{String(index + 1).padStart(2, "0")}</span>{tab.label}
+            {tab.label}
           </button>
         ))}
       </div>
@@ -55,7 +55,7 @@ export function SectionPager({ label, tabs, accent }: { label: string; tabs: Pag
           {tabs[active].content}
         </div>
       </div>
-      <div className="section-pager-foot"><span>← 左右滑动切换</span><b>{active + 1} / {tabs.length}</b></div>
+      <div className="section-pager-foot"><span>点上方标签，或左右滑动切换</span><b>{active + 1} / {tabs.length}</b></div>
     </div>
   );
 }

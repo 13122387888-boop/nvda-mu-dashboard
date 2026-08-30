@@ -74,7 +74,7 @@ export function calculateIvSkew(chain: OptionContractRecord[], close: number): I
   }
 
   const riskReversalVolPoints = (put25.impliedVolatility! - call25.impliedVolatility!) * 100;
-  const label = riskReversalVolPoints >= 3 ? "下行保护偏贵" : riskReversalVolPoints <= -3 ? "上行追涨偏强" : "两侧定价接近";
+  const label = riskReversalVolPoints >= 3 ? "Put侧 IV 更高" : riskReversalVolPoints <= -3 ? "Call侧 IV 更高" : "两侧 IV 接近";
   return {
     status: "AVAILABLE",
     expiration: selected.expiration,
@@ -85,7 +85,7 @@ export function calculateIvSkew(chain: OptionContractRecord[], close: number): I
     put25Strike: put25.strike,
     riskReversalVolPoints,
     label,
-    reason: "采用接近30天、至少7天到期的流动合约，并比较25Δ Put与25Δ Call。",
+    reason: "选择至少7天、尽量接近30天的可用合约，比较 Delta 约为25%的 Put 与 Call。",
     points,
   };
 }

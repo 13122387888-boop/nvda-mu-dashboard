@@ -3,7 +3,7 @@ import type { VolumeProfile } from "@/lib/indicators/volume-profile";
 
 export function VolumeProfileVisual({ profile, close }: { profile: VolumeProfile; close: number }) {
   if (profile.status === "UNAVAILABLE" || !profile.bins.length) {
-    return <div className="chart-empty">分钟成交数据暂不可用，无法生成成交量价格分布。</div>;
+    return <div className="chart-empty">暂无分钟成交数据，暂时无法计算成交分布。</div>;
   }
   const maximumVolume = Math.max(...profile.bins.map((bin) => bin.volume), 1);
   const maximumPrice = profile.bins.at(-1)!.high;
@@ -14,9 +14,9 @@ export function VolumeProfileVisual({ profile, close }: { profile: VolumeProfile
   return (
     <div className="volume-profile-card">
       <div className="profile-summary">
-        <div><span>成交最密集价</span><strong>{money(profile.pointOfControl)}</strong><small>POC · 样本内成交量最大的价格区间</small></div>
-        <div><span>70% 成交价值区</span><strong>{money(profile.valueAreaLow)} — {money(profile.valueAreaHigh)}</strong><small>不是股东真实持仓成本</small></div>
-        <div><span>现价相对密集价</span><strong className={pocDistance !== null && pocDistance >= 0 ? "positive" : "negative"}>{pocDistance === null ? "—" : `${pocDistance >= 0 ? "+" : ""}${percent(pocDistance)}`}</strong><small>{profile.sessionCount} 个交易日 · {profile.barSize}数据</small></div>
+        <div><span>最密集成交区的中点</span><strong>约 {money(profile.pointOfControl)}</strong><small>样本中成交最多的价格区间</small></div>
+        <div><span>主要成交区</span><strong>{money(profile.valueAreaLow)} — {money(profile.valueAreaHigh)}</strong><small>覆盖约70%成交量，不是持仓成本</small></div>
+        <div><span>现价距最密集价</span><strong className={pocDistance !== null && pocDistance >= 0 ? "positive" : "negative"}>{pocDistance === null ? "—" : `${pocDistance >= 0 ? "+" : ""}${percent(pocDistance)}`}</strong><small>{profile.sessionCount} 个交易日 · {profile.barSize}数据</small></div>
       </div>
       <div className="volume-profile-chart" aria-label="按价格区间汇总的历史分钟成交量">
         <i className="profile-current-line" style={{ top: `${closePosition}%` }}><span>现价 {money(close)}</span></i>
@@ -31,7 +31,7 @@ export function VolumeProfileVisual({ profile, close }: { profile: VolumeProfile
           );
         })}
       </div>
-      <div className="research-method-note"><b>口径</b>将最近 {profile.sessionCount} 个交易日的每分钟成交量归入该分钟典型价格所在区间。它反映“哪些价格成交活跃”，不能识别当前持有人、买卖方向或真实筹码成本。样本：{profile.sampleStart} 至 {profile.sampleEnd}，共 {profile.barCount.toLocaleString("zh-CN")} 根分钟柱。</div>
+      <div className="research-method-note"><b>怎么算</b>把最近 {profile.sessionCount} 个交易日的分钟成交量按价格区间归类。它只能说明哪些价格成交活跃，不能识别持有人、买卖方向或真实持仓成本。样本：{profile.sampleStart} 至 {profile.sampleEnd}，共 {profile.barCount.toLocaleString("zh-CN")} 根分钟柱。</div>
     </div>
   );
 }

@@ -9,7 +9,7 @@ type ChangePoint = { strike: number; callDelta: number; putDelta: number };
 export function OptionOiChart({ data, change }: { data: Point[]; change: { previousDate: string | null; matchedContracts: number; totalDelta: number | null; points: ChangePoint[] } }) {
   const [mode, setMode] = useState<"total" | "change">("total");
   const [selectedStrike, setSelectedStrike] = useState<number | null>(null);
-  if (!data.length) return <div className="chart-empty">暂无期权持仓数据</div>;
+  if (!data.length) return <div className="chart-empty">暂无可显示的期权合约</div>;
   const changeAvailable = Boolean(change.previousDate && change.matchedContracts && change.points.length);
   const chartData = mode === "change" && changeAvailable
     ? change.points.map((point) => ({ strike: point.strike, callOi: point.callDelta, putOi: point.putDelta }))
@@ -20,12 +20,12 @@ export function OptionOiChart({ data, change }: { data: Point[]; change: { previ
   const total = selected && mode === "total" ? selected.callOi + selected.putOi : 0;
   const formatter = new Intl.NumberFormat("zh-CN");
   return (
-    <div className="oi-scroll" aria-label="同一行权价坐标轴上，看涨未平仓量向上、看跌未平仓量向下">
+    <div className="oi-scroll" aria-label="同一行权价上，Call未平仓量向上、Put未平仓量向下">
       <div className="oi-mode-row">
-        <div className="oi-mode-switch" role="group" aria-label="未平仓量视图"><button className={mode === "total" ? "active" : ""} onClick={() => { setMode("total"); setSelectedStrike(null); }}>持仓总量</button><button disabled={!changeAvailable} className={mode === "change" ? "active" : ""} onClick={() => { setMode("change"); setSelectedStrike(null); }}>较昨日增减</button></div>
-        <span>{changeAvailable ? `对比 ${change.previousDate} · ${change.matchedContracts} 份同合约` : "需要连续两天快照后显示增减"}</span>
+        <div className="oi-mode-switch" role="group" aria-label="未平仓量视图"><button className={mode === "total" ? "active" : ""} onClick={() => { setMode("total"); setSelectedStrike(null); }}>当前数量</button><button disabled={!changeAvailable} className={mode === "change" ? "active" : ""} onClick={() => { setMode("change"); setSelectedStrike(null); }}>和上次比</button></div>
+        <span>{changeAvailable ? `与 ${change.previousDate} 相比 · ${change.matchedContracts} 个相同合约` : "保存两次期权数据后可查看变化"}</span>
       </div>
-      {mode === "change" && <div className="oi-change-summary"><b>同合约 OI 净变化</b><strong className={change.totalDelta !== null && change.totalDelta >= 0 ? "positive" : "negative"}>{change.totalDelta === null ? "—" : `${change.totalDelta >= 0 ? "+" : ""}${formatter.format(change.totalDelta)}`}</strong><span>只表示未平仓合约数量变化，不代表净买入或资金方向。</span></div>}
+      {mode === "change" && <div className="oi-change-summary"><b>相同合约的数量合计变化</b><strong className={change.totalDelta !== null && change.totalDelta >= 0 ? "positive" : "negative"}>{change.totalDelta === null ? "—" : `${change.totalDelta >= 0 ? "+" : ""}${formatter.format(change.totalDelta)}`}</strong><span>只表示未结束合约数量变化，不代表买入、卖出或资金方向。</span></div>}
       <div className="oi-chart" style={{ "--oi-columns": chartData.length } as CSSProperties}>
         {chartData.map((point, index) => (
           <div
@@ -43,9 +43,9 @@ export function OptionOiChart({ data, change }: { data: Point[]; change: { previ
           </div>
         ))}
       </div>
-      <div className="oi-caption"><span>完整展示 {chartData.length} 个行权价</span><b>{mode === "change" ? "实色＝增加　描边＝减少" : "看涨（Call）↑　看跌（Put）↓"}</b></div>
+      <div className="oi-caption"><span>显示全部 {chartData.length} 个行权价</span><b>{mode === "change" ? "实色＝增加　描边＝减少" : "Call ↑　Put ↓"}</b></div>
       <div className={`oi-readout ${selected ? "active" : ""}`} aria-live="polite">
-        {selected ? <><b>行权价 {selected.strike}</b><span>看涨 {mode === "change" && selected.callOi >= 0 ? "+" : ""}{formatter.format(selected.callOi)}{mode === "total" ? ` · ${total ? Math.round(selected.callOi / total * 100) : 0}%` : ""}</span><span>看跌 {mode === "change" && selected.putOi >= 0 ? "+" : ""}{formatter.format(selected.putOi)}{mode === "total" ? ` · ${total ? Math.round(selected.putOi / total * 100) : 0}%` : ""}</span></> : <span>点击任一柱形查看精确{mode === "change" ? "增减" : "未平仓量"}</span>}
+        {selected ? <><b>行权价 {selected.strike}</b><span>Call {mode === "change" && selected.callOi >= 0 ? "+" : ""}{formatter.format(selected.callOi)}{mode === "total" ? ` · ${total ? Math.round(selected.callOi / total * 100) : 0}%` : ""}</span><span>Put {mode === "change" && selected.putOi >= 0 ? "+" : ""}{formatter.format(selected.putOi)}{mode === "total" ? ` · ${total ? Math.round(selected.putOi / total * 100) : 0}%` : ""}</span></> : <span>点击柱形查看具体{mode === "change" ? "变化" : "数量"}</span>}
       </div>
     </div>
   );

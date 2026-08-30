@@ -19,18 +19,18 @@ describe("dayOverDayItems", () => {
 
     expect(dayOverDayItems(change).map((item) => item.label)).toEqual([
       "趋势分 +6",
-      "Gamma 正→负",
+      "Gamma估算 正值→负值",
       "看涨墙上移 $5.00",
-      "上破昨日预期上沿",
+      "高于上次期权估算上沿",
     ]);
   });
 
   it.each([
-    ["BELOW", "下破昨日预期下沿"],
-    ["NEAR_UPPER", "接近昨日预期上沿"],
-    ["NEAR_LOWER", "接近昨日预期下沿"],
-    ["INSIDE", "处于昨日预期区间内"],
-    ["UNAVAILABLE", "昨日预期区间暂无"],
+    ["BELOW", "低于上次期权估算下沿"],
+    ["NEAR_UPPER", "接近上次期权估算上沿"],
+    ["NEAR_LOWER", "接近上次期权估算下沿"],
+    ["INSIDE", "仍在上次期权估算区间内"],
+    ["UNAVAILABLE", "上次期权估算区间暂无"],
   ] as const)("renders %s expected-range state", (state, expectedLabel) => {
     const change: DayOverDayChange = {
       ...baseChange,

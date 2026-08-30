@@ -20,9 +20,9 @@ export type DayOverDayChange = {
 };
 
 const gammaShort = {
-  POSITIVE: "正",
-  NEGATIVE: "负",
-  NEUTRAL: "中性",
+  POSITIVE: "正值",
+  NEGATIVE: "负值",
+  NEUTRAL: "两侧接近",
   UNAVAILABLE: "暂无",
 } as const;
 
@@ -31,12 +31,12 @@ function signedNumber(value: number) {
 }
 
 const expectedRangePresentation: Record<ExpectedRangeState, { label: string; tone: string }> = {
-  ABOVE: { label: "上破昨日预期上沿", tone: "warning" },
-  BELOW: { label: "下破昨日预期下沿", tone: "warning" },
-  NEAR_UPPER: { label: "接近昨日预期上沿", tone: "warning" },
-  NEAR_LOWER: { label: "接近昨日预期下沿", tone: "warning" },
-  INSIDE: { label: "处于昨日预期区间内", tone: "neutral" },
-  UNAVAILABLE: { label: "昨日预期区间暂无", tone: "neutral" },
+  ABOVE: { label: "高于上次期权估算上沿", tone: "warning" },
+  BELOW: { label: "低于上次期权估算下沿", tone: "warning" },
+  NEAR_UPPER: { label: "接近上次期权估算上沿", tone: "warning" },
+  NEAR_LOWER: { label: "接近上次期权估算下沿", tone: "warning" },
+  INSIDE: { label: "仍在上次期权估算区间内", tone: "neutral" },
+  UNAVAILABLE: { label: "上次期权估算区间暂无", tone: "neutral" },
 };
 
 export function dayOverDayItems(change: DayOverDayChange | null) {
@@ -50,15 +50,15 @@ export function dayOverDayItems(change: DayOverDayChange | null) {
     },
     {
       label: change.gamma.previous === "UNAVAILABLE"
-        ? `Gamma ${gammaShort[change.gamma.current]}`
+        ? `Gamma估算 ${gammaShort[change.gamma.current]}`
         : gammaChanged
-          ? `Gamma ${gammaShort[change.gamma.previous]}→${gammaShort[change.gamma.current]}`
-          : `Gamma ${gammaShort[change.gamma.current]}未变`,
+          ? `Gamma估算 ${gammaShort[change.gamma.previous]}→${gammaShort[change.gamma.current]}`
+          : `Gamma估算 ${gammaShort[change.gamma.current]}未变`,
       tone: change.gamma.current === "NEGATIVE" ? "gamma-amplify" : change.gamma.current === "POSITIVE" ? "gamma-stable" : "neutral",
     },
     {
       label: change.callWall.delta === null
-        ? "看涨墙暂无对比"
+        ? "看涨墙没有上次数据"
         : change.callWall.delta === 0
           ? "看涨墙未变"
           : `看涨墙${change.callWall.delta > 0 ? "上移" : "下移"} ${money(Math.abs(change.callWall.delta))}`,
@@ -80,7 +80,7 @@ export function DayOverDayStrip({ change, currentStockDate, currentOptionsDate }
   return (
     <section className="day-change-strip" aria-labelledby="day-change-title">
       <div className="day-change-heading">
-        <div><span>变化追踪</span><h2 id="day-change-title">较昨日变化</h2></div>
+        <div><span>上一次到这一次</span><h2 id="day-change-title">和上一份数据相比</h2></div>
         <small>
           价格 {change?.previousStockDate ? `${change.previousStockDate} → ${currentStockDate}` : "暂无前一交易日"}
           {currentOptionsDate && <><i>·</i>期权 {change?.previousOptionsDate ? `${change.previousOptionsDate} → ${currentOptionsDate}` : currentOptionsDate}</>}

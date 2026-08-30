@@ -201,6 +201,9 @@ code { font-family: monospace; color: #b9c7d9; }
 .distance-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; border: 1px solid var(--line); background: var(--line); }
 .distance-grid > div { min-height: 92px; padding: 14px; display: flex; flex-direction: column; gap: 8px; background: #0d1219; }
 .distance-grid span { color: var(--muted); font-size: .67rem; }.distance-grid strong { font-size: 1rem; }.distance-grid small { margin-top: auto; color: #687484; font-size: .66rem; }
+.key-distance-card .distance-grid { grid-template-columns: 1fr; }
+.key-distance-card .distance-grid > div { min-height: 72px; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 12px; }
+.key-distance-card .distance-grid small { margin-top: 0; }
 .scenario-section { margin-top: 16px; padding: 24px; border: 1px solid var(--line); background: var(--panel); }
 .scenario-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; margin-bottom: 20px; }
 .scenario-heading > div { display: flex; flex-direction: column; gap: 7px; }

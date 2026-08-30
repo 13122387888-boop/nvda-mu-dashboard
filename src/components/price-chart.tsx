@@ -38,6 +38,11 @@ function chartTimeKey(time: Time | undefined) {
   return `${time.year}-${String(time.month).padStart(2, "0")}-${String(time.day).padStart(2, "0")}`;
 }
 
+function wallHistoryLabel(count: number) {
+  if (count === 0) return "暂无记录";
+  return count === 1 ? "仅1份记录" : `连续${count}份记录`;
+}
+
 export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevels }) {
   const container = useRef<HTMLDivElement>(null);
   const [priceOverlay, setPriceOverlay] = useState<PriceOverlay>("averages");
@@ -110,11 +115,11 @@ export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevel
       }
     }
     const priceLines = [
-      { price: levels.callWall.strike, color: "#4f8cff", title: `看涨墙 ${levels.callWall.strength ?? "—"}分·${levels.callWall.persistenceSnapshots}次`, style: levels.callWall.persistenceSnapshots >= 2 ? LineStyle.Solid : LineStyle.Dashed, width: Math.min(4, Math.max(1, Math.ceil((levels.callWall.strength ?? 25) / 25))) as 1 | 2 | 3 | 4 },
-      { price: levels.putWall.strike, color: "#f0b45c", title: `看跌墙 ${levels.putWall.strength ?? "—"}分·${levels.putWall.persistenceSnapshots}次`, style: levels.putWall.persistenceSnapshots >= 2 ? LineStyle.Solid : LineStyle.Dashed, width: Math.min(4, Math.max(1, Math.ceil((levels.putWall.strength ?? 25) / 25))) as 1 | 2 | 3 | 4 },
-      { price: levels.maxPain, color: "#f3f6fa", title: "最大痛点", style: LineStyle.Dashed, width: 1 as const },
-      { price: levels.expectedUpper, color: "#57d68d", title: "预期上沿", style: LineStyle.Dotted, width: 1 as const },
-      { price: levels.expectedLower, color: "#57d68d", title: "预期下沿", style: LineStyle.Dotted, width: 1 as const },
+      { price: levels.callWall.strike, color: "#4f8cff", title: `看涨墙｜强度${levels.callWall.strength ?? "—"}/100｜${wallHistoryLabel(levels.callWall.persistenceSnapshots)}`, style: levels.callWall.persistenceSnapshots >= 2 ? LineStyle.Solid : LineStyle.Dashed, width: Math.min(4, Math.max(1, Math.ceil((levels.callWall.strength ?? 25) / 25))) as 1 | 2 | 3 | 4 },
+      { price: levels.putWall.strike, color: "#f0b45c", title: `看跌墙｜强度${levels.putWall.strength ?? "—"}/100｜${wallHistoryLabel(levels.putWall.persistenceSnapshots)}`, style: levels.putWall.persistenceSnapshots >= 2 ? LineStyle.Solid : LineStyle.Dashed, width: Math.min(4, Math.max(1, Math.ceil((levels.putWall.strength ?? 25) / 25))) as 1 | 2 | 3 | 4 },
+      { price: levels.maxPain, color: "#f3f6fa", title: "最近到期最大痛点", style: LineStyle.Dashed, width: 1 as const },
+      { price: levels.expectedUpper, color: "#57d68d", title: "期权估算上沿", style: LineStyle.Dotted, width: 1 as const },
+      { price: levels.expectedLower, color: "#57d68d", title: "期权估算下沿", style: LineStyle.Dotted, width: 1 as const },
     ];
     if (showOptionLevels) {
       for (const level of priceLines) {
@@ -141,24 +146,24 @@ export function PriceChart({ data, levels }: { data: Point[]; levels: PriceLevel
       <div className="chart-layer-controls" aria-label="K线图层开关">
         <div className="chart-overlay-choice" role="group" aria-label="价格覆盖层">
           <button type="button" aria-pressed={priceOverlay === "averages"} className={priceOverlay === "averages" ? "active" : ""} onClick={() => setPriceOverlay("averages")}><i className="averages" />均线</button>
-          <button type="button" aria-pressed={priceOverlay === "bollinger"} className={priceOverlay === "bollinger" ? "active" : ""} onClick={() => setPriceOverlay("bollinger")}><i className="bollinger" />BOLL</button>
+          <button type="button" aria-pressed={priceOverlay === "bollinger"} className={priceOverlay === "bollinger" ? "active" : ""} onClick={() => setPriceOverlay("bollinger")}><i className="bollinger" />布林带</button>
         </div>
-        <button type="button" aria-pressed={showOptionLevels} className={showOptionLevels ? "active" : ""} onClick={() => setShowOptionLevels((value) => !value)}><i className="levels" />期权关键位</button>
+        <button type="button" aria-pressed={showOptionLevels} className={showOptionLevels ? "active" : ""} onClick={() => setShowOptionLevels((value) => !value)}><i className="levels" />期权价位</button>
         <button type="button" aria-pressed={showVolume} className={showVolume ? "active" : ""} onClick={() => setShowVolume((value) => !value)}><i className="volume" />成交量</button>
       </div>
       {activePoint && <div className="price-point-readout" aria-live="polite">
         <b>{activePoint.date}</b>
-        <span>开 {activePoint.open.toFixed(2)}</span><span>高 {activePoint.high.toFixed(2)}</span><span>低 {activePoint.low.toFixed(2)}</span><span>收 {activePoint.close.toFixed(2)}</span>
+        <span>开盘 {activePoint.open.toFixed(2)}</span><span>最高 {activePoint.high.toFixed(2)}</span><span>最低 {activePoint.low.toFixed(2)}</span><span>收盘 {activePoint.close.toFixed(2)}</span>
         <small>
           {priceOverlay === "averages" ? (
-            <>MA50 {activePoint.ma50?.toFixed(2) ?? "—"} · MA100 {activePoint.ma100?.toFixed(2) ?? "—"} · MA200 {activePoint.ma200?.toFixed(2) ?? "—"}</>
+            <>50日线 {activePoint.ma50?.toFixed(2) ?? "—"} · 100日线 {activePoint.ma100?.toFixed(2) ?? "—"} · 200日线 {activePoint.ma200?.toFixed(2) ?? "—"}</>
           ) : (
-            <>BOLL 上 {activePoint.bollingerUpper?.toFixed(2) ?? "—"} · 中 {activePoint.bollingerMiddle?.toFixed(2) ?? "—"} · 下 {activePoint.bollingerLower?.toFixed(2) ?? "—"} · %B {activePoint.bollingerPercentB?.toFixed(2) ?? "—"} · 带宽 {activePoint.bollingerBandwidth === null ? "—" : `${(activePoint.bollingerBandwidth * 100).toFixed(1)}%`}</>
+            <>布林带上轨 {activePoint.bollingerUpper?.toFixed(2) ?? "—"} · 中轨 {activePoint.bollingerMiddle?.toFixed(2) ?? "—"} · 下轨 {activePoint.bollingerLower?.toFixed(2) ?? "—"} · 带内位置 {activePoint.bollingerPercentB?.toFixed(2) ?? "—"} · 通道宽度 {activePoint.bollingerBandwidth === null ? "—" : `${(activePoint.bollingerBandwidth * 100).toFixed(1)}%`}</>
           )}
-          <> · RSI14 {activePoint.rsi14?.toFixed(1) ?? "—"} · 量 {compactVolume(activePoint.volume)} · 20日均量 {compactVolume(activePoint.volumeAverage20)} · RVOL {activePoint.relativeVolume?.toFixed(2) ?? "—"}×</>
+          <> · RSI {activePoint.rsi14?.toFixed(1) ?? "—"} · 成交量 {compactVolume(activePoint.volume)} · 20日平均 {compactVolume(activePoint.volumeAverage20)} · 相对成交量 {activePoint.relativeVolume?.toFixed(2) ?? "—"}×</>
         </small>
       </div>}
-      <div ref={container} className="price-chart" aria-label="日K、均线或布林带、成交量与期权关键价位图，点按可读取精确数值" />
+      <div ref={container} className="price-chart" aria-label="日K线、均线或布林带、成交量与期权价位图，点一下可读取具体数值" />
     </div>
   );
 }

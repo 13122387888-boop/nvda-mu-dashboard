@@ -8,7 +8,7 @@ function ResearchLineChart({ points, series, percentValues = false }: { points: 
   const height = 240;
   const padding = { left: 30, right: 22, top: 22, bottom: 30 };
   const values = points.flatMap((point) => series.map((item) => point[item.key])).filter((value): value is number => typeof value === "number" && Number.isFinite(value));
-  if (!values.length) return <div className="chart-empty compact">当前快照没有可绘制的历史数值。</div>;
+  if (!values.length) return <div className="chart-empty compact">当前数据里没有可画出的历史数值。</div>;
   const min = Math.min(...values);
   const max = Math.max(...values);
   const range = Math.max(max - min, Math.abs(max) * 0.08, 0.01);
@@ -61,6 +61,12 @@ function movementLabel(current: number | null | undefined, previous: number | nu
   return `${delta > 0 ? "上移" : "下移"} ${money(Math.abs(delta))}`;
 }
 
+function persistenceLabel(count: number) {
+  if (count === 0) return "暂无墙位记录";
+  if (count === 1) return "只有1份记录";
+  return `连续 ${count} 份记录`;
+}
+
 function WallMigrationChart({ points }: { points: OptionHistoryPoint[] }) {
   const width = 720;
   const height = 230;
@@ -75,7 +81,7 @@ function WallMigrationChart({ points }: { points: OptionHistoryPoint[] }) {
     { key: "callWall" as const, strengthKey: "callWallStrength" as const, label: "看涨墙", color: "#4f8cff" },
     { key: "putWall" as const, strengthKey: "putWallStrength" as const, label: "看跌墙", color: "#f0b45c" },
   ];
-  return <div className="wall-migration-chart"><div className="research-chart-legend"><span><i style={{ background: "#f3f6fb" }} />收盘价</span>{wallSeries.map((item) => <span key={item.key}><i style={{ background: item.color }} />{item.label} · 线宽代表强度</span>)}</div><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="最近十个期权快照的收盘价、看涨墙和看跌墙迁移">
+  return <div className="wall-migration-chart"><div className="research-chart-legend"><span><i style={{ background: "#f3f6fb" }} />收盘价</span>{wallSeries.map((item) => <span key={item.key}><i style={{ background: item.color }} />{item.label} · 线宽代表强度</span>)}</div><svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label="最近十份期权记录中的收盘价、看涨墙和看跌墙变化">
     {[0, 0.5, 1].map((ratio) => { const gridY = padding.top + ratio * (height - padding.top - padding.bottom); const value = max - ratio * range; return <g key={ratio}><line x1={padding.left} x2={width - padding.right} y1={gridY} y2={gridY} className="history-grid" /><text x={padding.left} y={gridY - 5}>{money(value)}</text></g>; })}
     {points.slice(1).map((point, index) => <line key={`close-${point.date}`} x1={x(index)} y1={y(points[index].close)} x2={x(index + 1)} y2={y(point.close)} stroke="#f3f6fb" strokeWidth="1.8" vectorEffect="non-scaling-stroke" />)}
     {wallSeries.map((item) => <g key={item.key}>{points.slice(1).map((point, index) => {
@@ -97,7 +103,7 @@ function WallMigrationChart({ points }: { points: OptionHistoryPoint[] }) {
 }
 
 function ValidationSample({ sample }: { sample: ExpectedRangeValidation }) {
-  return <div className="validation-sample"><span>{sample.forecastDate.slice(5)} → {sample.expiration.slice(5)}</span><b className={sample.closedInside ? "positive" : "warning-text"}>{sample.closedInside ? "收盘在区间内" : "收盘越出区间"}</b><small>{money(sample.expectedLower)} — {money(sample.expectedUpper)} · 到期 {money(sample.expirationClose)}</small></div>;
+  return <div className="validation-sample"><span>{sample.forecastDate.slice(5)} → {sample.expiration.slice(5)}</span><b className={sample.closedInside ? "positive" : "warning-text"}>{sample.closedInside ? "到期收盘在区间内" : "到期收盘在区间外"}</b><small>{money(sample.expectedLower)} — {money(sample.expectedUpper)} · 到期收盘 {money(sample.expirationClose)}</small></div>;
 }
 
 type History = {
@@ -116,7 +122,7 @@ type History = {
 export function OptionStructureHistory({ history }: { history: History }) {
   const usefulPoints = history.points.filter((point) => point.callWall !== null || point.atmIv !== null);
   const migrationPoints = usefulPoints.slice(-10);
-  if (!usefulPoints.length) return <div className="chart-empty">期权历史快照正在积累，暂时没有可绘制的结构变化。</div>;
+  if (!usefulPoints.length) return <div className="chart-empty">期权历史数据还在积累，暂时无法显示变化。</div>;
   const latest = migrationPoints.at(-1);
   const previous = migrationPoints.at(-2);
   const callPersistence = wallPersistence(migrationPoints, "callWall");
@@ -125,33 +131,33 @@ export function OptionStructureHistory({ history }: { history: History }) {
   return (
     <div className="option-history-stack">
       <article className="research-chart-card wall-migration-card">
-        <div className="research-chart-heading"><div><span>墙位迁移</span><h3>墙位方向、强度与持续性</h3></div><b>最近 {migrationPoints.length} 个快照</b></div>
-        <div className="wall-migration-summary"><div className="call"><span>看涨墙</span><strong>{movementLabel(latest?.callWall, previous?.callWall)}</strong><small>强度 {latest?.callWallStrength ?? "—"} · 连续 {callPersistence} 快照</small></div><div className="put"><span>看跌墙</span><strong>{movementLabel(latest?.putWall, previous?.putWall)}</strong><small>强度 {latest?.putWallStrength ?? "—"} · 连续 {putPersistence} 快照</small></div></div>
+        <div className="research-chart-heading"><div><span>关键价位变化</span><h3>看涨墙和看跌墙最近怎么变</h3></div><b>最近 {migrationPoints.length} 次数据更新</b></div>
+        <div className="wall-migration-summary"><div className="call"><span>看涨墙</span><strong>{movementLabel(latest?.callWall, previous?.callWall)}</strong><small>集中强度 {latest?.callWallStrength ?? "—"}/100 · {persistenceLabel(callPersistence)}</small></div><div className="put"><span>看跌墙</span><strong>{movementLabel(latest?.putWall, previous?.putWall)}</strong><small>集中强度 {latest?.putWallStrength ?? "—"}/100 · {persistenceLabel(putPersistence)}</small></div></div>
         <WallMigrationChart points={migrationPoints} />
-        <p>蓝线为看涨墙、橙线为看跌墙、白线为收盘；墙位改变使用空心点，延续使用实心点，线越粗代表该快照墙位强度越高。</p>
-        <small>快照并非连续交易日；墙位来自每个快照内同侧未平仓量最大的行权价。</small>
+        <p>蓝线是看涨墙、橙线是看跌墙、白线是收盘价；线越粗表示当次集中强度越高，空心点表示墙位发生变化。</p>
+        <small>每个点是一次已保存的数据记录，不一定对应连续交易日；墙位是当次同侧未平仓量最多的行权价。</small>
       </article>
       <article className="research-chart-card">
-        <div className="research-chart-heading"><div><span>波动率演变</span><h3>期权定价与实际波动的差</h3></div><b>{usefulPoints.filter((point) => point.atmIv !== null).length} 个 IV 样本</b></div>
+        <div className="research-chart-heading"><div><span>波动变化</span><h3>期权预估与近20日实际波动</h3></div><b>{usefulPoints.filter((point) => point.atmIv !== null).length} 个期权波动样本</b></div>
         <ResearchLineChart points={usefulPoints} percentValues series={[
-          { key: "atmIv", label: "平值 IV", color: "#b987ff" },
-          { key: "rv20", label: "20日实际波动", color: "#55a7ff", dashed: true },
+          { key: "atmIv", label: "期权预估波动", color: "#b987ff" },
+          { key: "rv20", label: "近20日实际波动", color: "#55a7ff", dashed: true },
         ]} />
-        <p>IV 是最近到期合约的隐含波动率，RV20 是此前 20 个交易日的年化实际波动；两者期限并不完全一致。</p>
+        <p>紫线来自最近到期期权，蓝线来自此前20个交易日；两者覆盖时间不同，只适合比较高低。</p>
       </article>
       <article className="range-validation-card">
-        <div className="research-chart-heading"><div><span>历史复盘</span><h3>区间覆盖与墙位延续</h3></div><b>{history.validation.sampleSize} 个到期样本</b></div>
-        {history.validation.sampleSize === 0 ? <div className="sample-building"><strong>样本积累中</strong><span>当前快照对应的到期日尚未结束，暂不计算历史覆盖。</span></div> : <>
+        <div className="research-chart-heading"><div><span>过去到期结果</span><h3>期权估算区间和墙位后来怎样</h3></div><b>{history.validation.sampleSize} 个到期样本</b></div>
+        {history.validation.sampleSize === 0 ? <div className="sample-building"><strong>样本积累中</strong><span>最新记录对应的到期日尚未结束，暂不计算历史覆盖。</span></div> : <>
           <div className="validation-metrics reliability-metrics">
-            <div><span>区间覆盖</span><strong>{percent(history.validation.insideRate)}</strong><small>{history.validation.insideCount} / {history.validation.sampleSize}</small></div>
-            <div><span>上沿触及</span><strong>{history.validation.upperTouchCount}</strong><small>{history.validation.upperTouchCount} / {history.validation.sampleSize}</small></div>
-            <div><span>下沿触及</span><strong>{history.validation.lowerTouchCount}</strong><small>{history.validation.lowerTouchCount} / {history.validation.sampleSize}</small></div>
-            <div><span>站上看涨墙后延续</span><strong>{wall.callSampleSize < 5 ? "积累中" : percent(wall.callHoldRate)}</strong><small>{wall.callHoldCount} / {wall.callSampleSize}</small></div>
-            <div><span>跌破看跌墙后延续</span><strong>{wall.putSampleSize < 5 ? "积累中" : percent(wall.putHoldRate)}</strong><small>{wall.putHoldCount} / {wall.putSampleSize}</small></div>
+            <div><span>到期收盘在区间内</span><strong>{percent(history.validation.insideRate)}</strong><small>{history.validation.insideCount} / {history.validation.sampleSize}</small></div>
+            <div><span>期间触及上沿</span><strong>{history.validation.upperTouchCount}</strong><small>{history.validation.upperTouchCount} / {history.validation.sampleSize}</small></div>
+            <div><span>期间触及下沿</span><strong>{history.validation.lowerTouchCount}</strong><small>{history.validation.lowerTouchCount} / {history.validation.sampleSize}</small></div>
+            <div><span>收盘在看涨墙上方后，次日仍在上方</span><strong>{wall.callSampleSize < 5 ? "积累中" : percent(wall.callHoldRate)}</strong><small>{wall.callHoldCount} / {wall.callSampleSize}</small></div>
+            <div><span>收盘在看跌墙下方后，次日仍在下方</span><strong>{wall.putSampleSize < 5 ? "积累中" : percent(wall.putHoldRate)}</strong><small>{wall.putHoldCount} / {wall.putSampleSize}</small></div>
           </div>
-          {history.validation.samples.length > 0 && <details className="validation-detail"><summary>查看最近 {history.validation.samples.length} 个区间复盘样本</summary><div className="validation-samples">{history.validation.samples.map((sample) => <ValidationSample key={`${sample.forecastDate}-${sample.expiration}`} sample={sample} />)}</div></details>}
+          {history.validation.samples.length > 0 && <details className="validation-detail"><summary>查看最近 {history.validation.samples.length} 个区间结果</summary><div className="validation-samples">{history.validation.samples.map((sample) => <ValidationSample key={`${sample.forecastDate}-${sample.expiration}`} sample={sample} />)}</div></details>}
         </>}
-        <div className="research-method-note"><b>口径</b>区间以快照当日收盘和最近到期 ATM IV 推算，并用到期日前最后一个交易日收盘验证；墙位延续统计“快照收盘已在墙位外时，下一交易日是否仍在同侧”。样本可能重叠，历史复盘不是未来概率。</div>
+        <div className="research-method-note"><b>怎么算</b>区间使用记录当日收盘，以及最近到期、接近现价的 Call 与 Put 价格之和估算；到期前最后一个交易日收盘用来验证结果。墙位统计只看下一交易日是否仍在同一侧。样本可能重叠，不能把历史结果当成未来概率。</div>
       </article>
     </div>
   );

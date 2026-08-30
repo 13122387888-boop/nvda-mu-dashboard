@@ -1791,6 +1791,7 @@ body { overflow-x: hidden; }
   outline: 1px solid color-mix(in srgb, var(--accent) 62%, var(--text));
   outline-offset: 4px;
 }
+.scanner-mobile-trend-light { display: none; }
 
 .trend-score-sheet { width: min(720px, 100%); }
 .trend-score-sheet-title {
@@ -1990,9 +1991,8 @@ body { overflow-x: hidden; }
   .scanner-stock span { font-size: .52rem; }
 }
 
-/* Homepage structure distribution: larger default canvas and a dedicated
-   focus view. Mobile keeps the enlargement inside the chart scroller so the
-   page itself never develops horizontal overflow. */
+/* Homepage structure distribution: the default chart always fits its
+   container; the dedicated focus view keeps the larger research canvas. */
 .distribution-heading-actions {
   display: flex;
   align-items: center;
@@ -2026,19 +2026,13 @@ body { overflow-x: hidden; }
   outline: none;
 }
 .structure-distribution > .distribution-chart {
-  overflow-x: auto;
-  overflow-y: hidden;
-  overscroll-behavior-x: contain;
-  scrollbar-color: #3b4654 transparent;
-  scrollbar-width: thin;
+  overflow: hidden;
 }
 .structure-distribution > .distribution-chart svg {
   width: min(100%, 1080px);
   height: auto;
   margin-inline: auto;
 }
-.distribution-pan-hint { display: none; }
-
 .distribution-focus-overlay {
   position: fixed;
   inset: 0;
@@ -2108,22 +2102,21 @@ body { overflow-x: hidden; }
   .distribution-heading-actions { width: 100%; justify-content: space-between; }
   .distribution-expand-button { min-height: 38px; padding-inline: 11px; }
   .structure-distribution > .distribution-chart svg {
-    width: 660px;
-    max-width: none;
-    height: auto;
-    margin: 0;
-  }
-  .distribution-pan-hint {
     width: 100%;
-    padding: 2px 8px 7px;
-    position: sticky;
-    left: 0;
-    display: block;
-    color: #8996a7;
-    text-align: center;
-    font: 700 .56rem/1.2 var(--font-geist-sans), sans-serif;
-    letter-spacing: .035em;
+    max-width: 100%;
+    height: auto;
+    margin-inline: auto;
   }
+  .scanner-mobile-trend-light {
+    width: 16px;
+    height: 16px;
+    position: absolute;
+    top: 1px;
+    right: 0;
+    display: grid;
+    place-items: center;
+  }
+  .scanner-mobile-trend-light .status-dot { width: 7px; height: 7px; }
   .distribution-focus-overlay { padding: 6px; }
   .distribution-focus-dialog { padding: 10px; gap: 7px; }
   .distribution-focus-header { gap: 10px; }

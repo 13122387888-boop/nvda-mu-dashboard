@@ -299,7 +299,6 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
 
   const renderChart = (focusView = false) => (
     <div className={`distribution-chart${focusView ? " distribution-focus-plot" : ""}`}>
-      {!focusView && <span className="distribution-pan-hint" aria-hidden="true">← 左右滑动查看完整分布 →</span>}
       {plotted.length ? <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={mode === "OPTION" ? "趋势分、IV位置、相对成交量和Gamma结构分布图" : "趋势分、布林位置、RSI状态和相对成交量分布图"}>
         <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className="distribution-frame" />
         <line x1={x(50)} x2={x(50)} y1={padding.top} y2={height - padding.bottom} className="distribution-midline" />
@@ -356,7 +355,7 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
         <div className="distribution-heading-tools">
           <div className="distribution-heading-actions">
             <button ref={expandButtonRef} type="button" className="distribution-expand-button" aria-haspopup="dialog" aria-expanded={expanded} onClick={() => setExpanded(true)}>
-              <span aria-hidden="true">↗</span> 横屏放大
+              <span aria-hidden="true">↗</span> 放大查看
             </button>
             {renderModeSwitch()}
           </div>
@@ -370,7 +369,7 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
         <div className="distribution-focus-overlay" onClick={(event) => { if (event.target === event.currentTarget) closeExpanded(); }}>
           <section ref={expandedDialogRef} className="distribution-focus-dialog" role="dialog" aria-modal="true" aria-labelledby={expandedTitleId}>
             <header className="distribution-focus-header">
-              <div><span>横屏研究视图</span><h2 id={expandedTitleId}>结构分布 · 放大查看</h2><p>手机旋转为横屏后，可一次看到更多气泡；图内仍可点击标的查看读数。</p></div>
+              <div><span>全屏研究视图</span><h2 id={expandedTitleId}>结构分布 · 放大查看</h2><p>放大后可更清楚地查看气泡分布；图内仍可点击标的查看完整读数。</p></div>
               <div className="distribution-focus-actions">{renderModeSwitch()}<button ref={closeExpandedButtonRef} className="distribution-focus-close" type="button" onClick={closeExpanded}>关闭</button></div>
             </header>
             {renderLegend()}
@@ -475,6 +474,7 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
                   aria-expanded={trendSheetSymbol === stock.symbol}
                   aria-label={`${stock.symbol} 趋势分 ${stock.trendScore ?? "暂无"}，查看组成`}
                 >
+                  <span className="scanner-mobile-trend-light" aria-hidden="true"><i className={`status-dot ${trend.tone}`} /></span>
                   <small>趋势判断</small><strong>{stock.trendScore ?? "—"}</strong>
                   <b><i className={`status-dot ${trend.tone}`} />{trend.label}</b>
                   <span className="scanner-confidence" title={stock.trendConfidence.reason}>{confidencePresentation(stock.trendConfidence)}</span>

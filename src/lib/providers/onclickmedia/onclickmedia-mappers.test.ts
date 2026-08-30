@@ -31,6 +31,28 @@ describe("OnclickMedia adapter", () => {
     expect(result.warnings.some((warning) => warning.includes("Skipped"))).toBe(true);
   });
 
+  it("normalizes OnclickMedia's BRKB option underlying to BRK.B", () => {
+    const result = mapOptionChain([{
+      symbol: "BRKB",
+      contract_id: "BRKB--260918C00500000",
+      date: "2026-08-28",
+      expiration: "2026-09-18",
+      strike: 500,
+      type: "call",
+      open_interest: 120,
+      greeks: { implied_volatility: 0.21, gamma: 0.01 },
+    }], "BRK.B");
+
+    expect(result.records).toHaveLength(1);
+    expect(result.records[0]).toMatchObject({
+      symbol: "BRK.B",
+      contractSymbol: "BRKB--260918C00500000",
+      optionType: "CALL",
+      strike: 500,
+    });
+    expect(result.warnings).toEqual([]);
+  });
+
   it("keeps decimal IV and converts percentage IV", () => {
     expect(normalizeIv(0.45)).toBe(0.45);
     expect(normalizeIv(45)).toBe(0.45);

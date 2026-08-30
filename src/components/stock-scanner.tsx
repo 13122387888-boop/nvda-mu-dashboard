@@ -193,7 +193,7 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
   const [mode, setMode] = useState<DistributionMode>("STOCK");
   const [selectedSymbol, setSelectedSymbol] = useState<SupportedSymbol | null>(null);
   const width = 720;
-  const height = cards.length > 12 ? 320 : 292;
+  const height = cards.length > 32 ? 380 : cards.length > 12 ? 320 : 292;
   const padding = { left: 52, right: 24, top: 30, bottom: 42 };
   const metricValue = (card: ScanCard) => mode === "OPTION"
     ? card.ivPercentile.percentile
@@ -201,14 +201,15 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
   const plotted = cards.filter((card) => card.trendScore !== null && metricValue(card) !== null);
   const unavailable = cards.filter((card) => card.trendScore === null || metricValue(card) === null);
   const dense = plotted.length > 12;
+  const veryDense = plotted.length > 32;
   const x = (value: number) => padding.left + Math.max(0, Math.min(100, value)) / 100 * (width - padding.left - padding.right);
   const normalizedY = (value: number) => mode === "OPTION" ? value : ((Math.max(-20, Math.min(120, value)) + 20) / 140) * 100;
   const y = (value: number) => padding.top + (100 - normalizedY(value)) / 100 * (height - padding.top - padding.bottom);
   const radius = (value: number | null) => {
     if (value === null) return 4;
     const scaled = Math.sqrt(Math.max(0.5, Math.min(2.5, value)));
-    const minimum = dense ? 9 : 12;
-    const spread = dense ? 6 : 8;
+    const minimum = veryDense ? 7 : dense ? 9 : 12;
+    const spread = veryDense ? 5 : dense ? 6 : 8;
     return minimum + (scaled - Math.sqrt(0.5)) / (Math.sqrt(2.5) - Math.sqrt(0.5)) * spread;
   };
   const pointClass = (card: ScanCard) => {
@@ -221,8 +222,8 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
     const r = radius(card.relativeVolume);
     let cx = anchorX;
     let cy = anchorY;
-    for (let attempt = 0; attempt < 64; attempt += 1) {
-      const distance = attempt === 0 ? 0 : 10 + Math.ceil(attempt / 8) * 11;
+    for (let attempt = 0; attempt < (veryDense ? 96 : 64); attempt += 1) {
+      const distance = attempt === 0 ? 0 : 9 + Math.ceil(attempt / 8) * (veryDense ? 9 : 11);
       const angle = (attempt % 8) * Math.PI / 4;
       const candidateX = Math.max(padding.left + r, Math.min(width - padding.right - r, anchorX + Math.cos(angle) * distance));
       const candidateY = Math.max(padding.top + r, Math.min(height - padding.bottom - r, anchorY + Math.sin(angle) * distance));

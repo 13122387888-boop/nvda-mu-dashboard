@@ -90,6 +90,13 @@ export function normalizeIv(value: unknown): number | null {
   return number > 5 ? number / 100 : number;
 }
 
+function normalizeOptionUnderlyingSymbol(value: string): string {
+  const symbol = value.trim().toUpperCase();
+  // OnclickMedia accepts BRK.B as the request ticker but identifies the
+  // underlying as BRKB in option-chain rows.
+  return symbol === "BRKB" ? "BRK.B" : symbol;
+}
+
 export function mapOptionChain(raw: unknown, expectedSymbol: SupportedSymbol) {
   const records: OptionContractRecord[] = [];
   const warnings: string[] = [];
@@ -109,7 +116,7 @@ export function mapOptionChain(raw: unknown, expectedSymbol: SupportedSymbol) {
     const row = parsed.data;
     const strike = finiteNumber(row.strike);
     const side = row.type.toLowerCase() === "call" ? "CALL" : row.type.toLowerCase() === "put" ? "PUT" : null;
-    if (row.symbol.toUpperCase() !== expectedSymbol || !isYmd(row.date) || !isYmd(row.expiration) || strike === null || strike < 0 || !side) {
+    if (normalizeOptionUnderlyingSymbol(row.symbol) !== expectedSymbol || !isYmd(row.date) || !isYmd(row.expiration) || strike === null || strike < 0 || !side) {
       warnings.push(`Skipped invalid option row ${index}`);
       return;
     }

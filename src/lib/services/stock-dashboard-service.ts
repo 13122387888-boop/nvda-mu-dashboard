@@ -643,7 +643,7 @@ async function loadStockCards() {
   });
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v20"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v21"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();

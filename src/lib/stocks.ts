@@ -26,6 +26,20 @@ export const STOCKS = {
   AMD: { name: "超威半导体 AMD", shortName: "AMD", accent: "#ed1c24", assetType: "STOCK" },
   IGV: { name: "iShares 软件行业 ETF", shortName: "软件 ETF", accent: "#7c8fe8", assetType: "ETF" },
   UVIX: { name: "2倍做多 VIX 期货 ETF", shortName: "VIX 2倍 ETF", accent: "#b86bff", assetType: "ETF" },
+  META: { name: "Meta Platforms", shortName: "Meta", accent: "#1877f2", assetType: "STOCK" },
+  AMZN: { name: "亚马逊 Amazon", shortName: "亚马逊", accent: "#ff9900", assetType: "STOCK" },
+  ASML: { name: "阿斯麦 ASML", shortName: "阿斯麦", accent: "#00a3e0", assetType: "STOCK" },
+  WDC: { name: "西部数据 Western Digital", shortName: "西部数据", accent: "#005195", assetType: "STOCK" },
+  STX: { name: "希捷科技 Seagate", shortName: "希捷", accent: "#6ebe44", assetType: "STOCK" },
+  PLTR: { name: "Palantir Technologies", shortName: "Palantir", accent: "#c4cad2", assetType: "STOCK" },
+  XBI: { name: "SPDR 标普生物科技 ETF", shortName: "生物科技 ETF", accent: "#00a6a6", assetType: "ETF" },
+  "BRK.B": { name: "伯克希尔哈撒韦 B", shortName: "伯克希尔 B", accent: "#5476a6", assetType: "STOCK" },
+  LLY: { name: "礼来 Eli Lilly", shortName: "礼来", accent: "#d52b1e", assetType: "STOCK" },
+  GLW: { name: "康宁 Corning", shortName: "康宁", accent: "#3d6fb4", assetType: "STOCK" },
+  COHR: { name: "相干公司 Coherent", shortName: "Coherent", accent: "#f05a28", assetType: "STOCK" },
+  AAOI: { name: "应用光电 Applied Optoelectronics", shortName: "应用光电", accent: "#00a7b5", assetType: "STOCK" },
+  LITE: { name: "Lumentum Holdings", shortName: "Lumentum", accent: "#7a5cff", assetType: "STOCK" },
+  BE: { name: "布鲁姆能源 Bloom Energy", shortName: "布鲁姆能源", accent: "#35b56a", assetType: "STOCK" },
 } as const;
 
 export type SupportedSymbol = keyof typeof STOCKS;

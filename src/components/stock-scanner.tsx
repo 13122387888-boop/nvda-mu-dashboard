@@ -192,6 +192,11 @@ function TrendScoreSheet({ stock, onClose }: { stock: ScanCard | null; onClose: 
 function StructureDistribution({ cards }: { cards: ScanCard[] }) {
   const [mode, setMode] = useState<DistributionMode>("STOCK");
   const [selectedSymbol, setSelectedSymbol] = useState<SupportedSymbol | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const expandedTitleId = useId();
+  const expandButtonRef = useRef<HTMLButtonElement>(null);
+  const expandedDialogRef = useRef<HTMLElement>(null);
+  const closeExpandedButtonRef = useRef<HTMLButtonElement>(null);
   const width = 720;
   const height = cards.length > 32 ? 380 : cards.length > 12 ? 320 : 292;
   const padding = { left: 52, right: 24, top: 30, bottom: 42 };
@@ -208,8 +213,8 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
   const radius = (value: number | null) => {
     if (value === null) return 4;
     const scaled = Math.sqrt(Math.max(0.5, Math.min(2.5, value)));
-    const minimum = veryDense ? 7 : dense ? 9 : 12;
-    const spread = veryDense ? 5 : dense ? 6 : 8;
+    const minimum = veryDense ? 9 : dense ? 10 : 12;
+    const spread = veryDense ? 6 : dense ? 7 : 8;
     return minimum + (scaled - Math.sqrt(0.5)) / (Math.sqrt(2.5) - Math.sqrt(0.5)) * spread;
   };
   const pointClass = (card: ScanCard) => {
@@ -243,71 +248,146 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
     ? { topLeft: "趋势弱 · 波动偏贵", topRight: "强势但波动偏贵", bottomLeft: "弱势且波动平静", bottomRight: "安静强势", axis: "IV 初步位置", top: "100", bottom: "0" }
     : { topLeft: "弱势结构 · 上轨附近", topRight: "强势结构 · 上轨附近", bottomLeft: "弱势结构 · 下轨附近", bottomRight: "强势结构 · 回踩区域", axis: "BOLL %B", top: "上轨外", bottom: "下轨外" };
 
+  const closeExpanded = useCallback(() => setExpanded(false), []);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const previousOverflow = document.body.style.overflow;
+    const expandButton = expandButtonRef.current;
+    document.body.style.overflow = "hidden";
+    const frame = requestAnimationFrame(() => closeExpandedButtonRef.current?.focus());
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeExpanded();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = expandedDialogRef.current?.querySelectorAll<HTMLElement>("button:not([disabled]), a[href], [tabindex]:not([tabindex='-1'])");
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+      expandButton?.focus();
+    };
+  }, [closeExpanded, expanded]);
+
+  const renderModeSwitch = () => (
+    <div className="distribution-mode-switch" aria-label="分布图观察模式">
+      <button type="button" className={mode === "STOCK" ? "active" : ""} aria-pressed={mode === "STOCK"} onClick={() => { setMode("STOCK"); setSelectedSymbol(null); }}>股票观察</button>
+      <button type="button" className={mode === "OPTION" ? "active" : ""} aria-pressed={mode === "OPTION"} onClick={() => { setMode("OPTION"); setSelectedSymbol(null); }}>期权观察</button>
+    </div>
+  );
+
+  const renderLegend = () => (
+    <div className="distribution-legend">
+      {mode === "OPTION" ? <><span><i className="stable" />正 Gamma</span><span><i className="amplify" />负 Gamma</span><span><i className="neutral" />中性 / 暂无</span></> : <><span><i className="rsi-hot" />RSI偏热</span><span><i className="rsi-strong" />RSI偏强</span><span><i className="rsi-weak" />RSI偏弱</span><span><i className="rsi-cold" />RSI偏冷</span><span><i className="neutral" />中性</span></>}
+    </div>
+  );
+
+  const renderChart = (focusView = false) => (
+    <div className={`distribution-chart${focusView ? " distribution-focus-plot" : ""}`}>
+      {!focusView && <span className="distribution-pan-hint" aria-hidden="true">← 左右滑动查看完整分布 →</span>}
+      {plotted.length ? <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={mode === "OPTION" ? "趋势分、IV位置、相对成交量和Gamma结构分布图" : "趋势分、布林位置、RSI状态和相对成交量分布图"}>
+        <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className="distribution-frame" />
+        <line x1={x(50)} x2={x(50)} y1={padding.top} y2={height - padding.bottom} className="distribution-midline" />
+        <line x1={padding.left} x2={width - padding.right} y1={y(50)} y2={y(50)} className="distribution-midline" />
+        <text x={padding.left + 10} y={padding.top + 17}>{quadrant.topLeft}</text><text x={width - padding.right - 10} y={padding.top + 17} textAnchor="end">{quadrant.topRight}</text>
+        <text x={padding.left + 10} y={height - padding.bottom - 10}>{quadrant.bottomLeft}</text><text x={width - padding.right - 10} y={height - padding.bottom - 10} textAnchor="end">{quadrant.bottomRight}</text>
+        <text x={padding.left - 9} y={padding.top + 4} textAnchor="end">{quadrant.top}</text><text x={padding.left - 9} y={height - padding.bottom + 4} textAnchor="end">{quadrant.bottom}</text>
+        <text x={padding.left} y={height - 11}>趋势分 0</text><text x={width - padding.right} y={height - 11} textAnchor="end">趋势分 100</text>
+        <text x="12" y={height / 2} transform={`rotate(-90 12 ${height / 2})`} textAnchor="middle" className="distribution-axis-label">{quadrant.axis}</text>
+        {positioned.map(({ card, anchorX, anchorY, cx, cy, r }) => {
+          const displaced = Math.hypot(anchorX - cx, anchorY - cy) > 2;
+          const isSelected = selectedSymbol === card.symbol;
+          const bollingerMetric = card.bollinger.percentB === null ? "暂无" : `${(card.bollinger.percentB * 100).toFixed(0)}%`;
+          const chartMetric = mode === "OPTION" ? `IV位置 ${card.ivPercentile.percentile}` : `BOLL位置 ${bollingerMetric}`;
+          return <a
+            href={`/stocks/${card.symbol}`}
+            className={`distribution-point ${pointClass(card)}${isSelected ? " selected" : ""}`}
+            key={card.symbol}
+            aria-label={`${card.symbol} 趋势分 ${card.trendScore}，${chartMetric}，相对成交量 ${card.relativeVolume?.toFixed(1) ?? "暂无"}倍`}
+            onClick={(event) => {
+              if (!isSelected) {
+                event.preventDefault();
+                setSelectedSymbol(card.symbol);
+              }
+            }}
+          >
+            {displaced && <><line x1={anchorX} y1={anchorY} x2={cx} y2={cy} className="distribution-connector" /><circle cx={anchorX} cy={anchorY} r="2.5" className="distribution-anchor" /></>}
+            <circle cx={cx} cy={cy} r={r} />
+            <text x={cx} y={cy + 3} textAnchor="middle">{card.symbol}</text>
+          </a>;
+        })}
+      </svg> : <div className="distribution-empty">当前筛选下缺少可比较的历史数据。</div>}
+    </div>
+  );
+
+  const renderReadout = () => (
+    <div className={`distribution-readout${selected ? " active" : ""}`} aria-live="polite">
+      {selected ? <>
+        <div><b>{selected.symbol}</b><span>趋势 {selected.trendScore ?? "—"}</span>{mode === "OPTION" ? <span>{selected.ivPercentile.label}</span> : <><span>{maStructureLabels[selected.maStructure]}</span><span>{rsiPresentation(selected.rsi14).label}</span><span>{bollingerPosition(selected)}</span></>}<span>量能 {selected.relativeVolume?.toFixed(1) ?? "—"}×</span>{mode === "OPTION" && <span>{gammaLabels[selected.gammaRegime]}</span>}</div>
+        <Link href={`/stocks/${selected.symbol}`}>查看详情 →</Link>
+      </> : <span>点击气泡查看完整读数；再次点击同一气泡进入详情。</span>}
+    </div>
+  );
+
+  const footerContent = <>
+    <span>{mode === "OPTION" ? "气泡面积＝相对成交量；量能缺失时显示最小圆点；IV位置少于20个快照时属于初步结论。" : "横轴＝趋势分；纵轴＝BOLL位置；面积＝相对成交量（缺失时为最小圆点）；颜色＝RSI状态。"}</span>
+    <span>已绘制 {plotted.length}/{cards.length}{unavailable.length > 0 ? ` · 未入图：${unavailableSummary}` : ""}</span>
+  </>;
+
   return (
     <section className="structure-distribution" aria-labelledby="structure-distribution-title">
       <div className="distribution-heading">
         <div><span>横向比较</span><h2 id="structure-distribution-title">结构分布</h2></div>
         <div className="distribution-heading-tools">
-          <div className="distribution-mode-switch" aria-label="分布图观察模式">
-            <button type="button" className={mode === "STOCK" ? "active" : ""} aria-pressed={mode === "STOCK"} onClick={() => { setMode("STOCK"); setSelectedSymbol(null); }}>股票观察</button>
-            <button type="button" className={mode === "OPTION" ? "active" : ""} aria-pressed={mode === "OPTION"} onClick={() => { setMode("OPTION"); setSelectedSymbol(null); }}>期权观察</button>
+          <div className="distribution-heading-actions">
+            <button ref={expandButtonRef} type="button" className="distribution-expand-button" aria-haspopup="dialog" aria-expanded={expanded} onClick={() => setExpanded(true)}>
+              <span aria-hidden="true">↗</span> 横屏放大
+            </button>
+            {renderModeSwitch()}
           </div>
-          <div className="distribution-legend">
-            {mode === "OPTION" ? <><span><i className="stable" />正 Gamma</span><span><i className="amplify" />负 Gamma</span><span><i className="neutral" />中性 / 暂无</span></> : <><span><i className="rsi-hot" />RSI偏热</span><span><i className="rsi-strong" />RSI偏强</span><span><i className="rsi-weak" />RSI偏弱</span><span><i className="rsi-cold" />RSI偏冷</span><span><i className="neutral" />中性</span></>}
-          </div>
+          {renderLegend()}
         </div>
       </div>
-      <div className="distribution-chart">
-        {plotted.length ? <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={mode === "OPTION" ? "趋势分、IV位置、相对成交量和Gamma结构分布图" : "趋势分、布林位置、RSI状态和相对成交量分布图"}>
-          <rect x={padding.left} y={padding.top} width={width - padding.left - padding.right} height={height - padding.top - padding.bottom} className="distribution-frame" />
-          <line x1={x(50)} x2={x(50)} y1={padding.top} y2={height - padding.bottom} className="distribution-midline" />
-          <line x1={padding.left} x2={width - padding.right} y1={y(50)} y2={y(50)} className="distribution-midline" />
-          <text x={padding.left + 10} y={padding.top + 17}>{quadrant.topLeft}</text><text x={width - padding.right - 10} y={padding.top + 17} textAnchor="end">{quadrant.topRight}</text>
-          <text x={padding.left + 10} y={height - padding.bottom - 10}>{quadrant.bottomLeft}</text><text x={width - padding.right - 10} y={height - padding.bottom - 10} textAnchor="end">{quadrant.bottomRight}</text>
-          <text x={padding.left - 9} y={padding.top + 4} textAnchor="end">{quadrant.top}</text><text x={padding.left - 9} y={height - padding.bottom + 4} textAnchor="end">{quadrant.bottom}</text>
-          <text x={padding.left} y={height - 11}>趋势分 0</text><text x={width - padding.right} y={height - 11} textAnchor="end">趋势分 100</text>
-          <text x="12" y={height / 2} transform={`rotate(-90 12 ${height / 2})`} textAnchor="middle" className="distribution-axis-label">{quadrant.axis}</text>
-          {positioned.map(({ card, anchorX, anchorY, cx, cy, r }) => {
-            const displaced = Math.hypot(anchorX - cx, anchorY - cy) > 2;
-            const isSelected = selectedSymbol === card.symbol;
-            const bollingerMetric = card.bollinger.percentB === null ? "暂无" : `${(card.bollinger.percentB * 100).toFixed(0)}%`;
-            const chartMetric = mode === "OPTION" ? `IV位置 ${card.ivPercentile.percentile}` : `BOLL位置 ${bollingerMetric}`;
-            return <a
-              href={`/stocks/${card.symbol}`}
-              className={`distribution-point ${pointClass(card)}${isSelected ? " selected" : ""}`}
-              key={card.symbol}
-              aria-label={`${card.symbol} 趋势分 ${card.trendScore}，${chartMetric}，相对成交量 ${card.relativeVolume?.toFixed(1) ?? "暂无"}倍`}
-              onClick={(event) => {
-                if (!isSelected) {
-                  event.preventDefault();
-                  setSelectedSymbol(card.symbol);
-                }
-              }}
-            >
-              {displaced && <><line x1={anchorX} y1={anchorY} x2={cx} y2={cy} className="distribution-connector" /><circle cx={anchorX} cy={anchorY} r="2.5" className="distribution-anchor" /></>}
-              <circle cx={cx} cy={cy} r={r} />
-              <text x={cx} y={cy + 3} textAnchor="middle">{card.symbol}</text>
-            </a>;
-          })}
-        </svg> : <div className="distribution-empty">当前筛选下缺少可比较的历史数据。</div>}
-      </div>
-      <div className={`distribution-readout${selected ? " active" : ""}`} aria-live="polite">
-        {selected ? <>
-          <div><b>{selected.symbol}</b><span>趋势 {selected.trendScore ?? "—"}</span>{mode === "OPTION" ? <span>{selected.ivPercentile.label}</span> : <><span>{maStructureLabels[selected.maStructure]}</span><span>{rsiPresentation(selected.rsi14).label}</span><span>{bollingerPosition(selected)}</span></>}<span>量能 {selected.relativeVolume?.toFixed(1) ?? "—"}×</span>{mode === "OPTION" && <span>{gammaLabels[selected.gammaRegime]}</span>}</div>
-          <Link href={`/stocks/${selected.symbol}`}>查看详情 →</Link>
-        </> : <span>点击气泡查看完整读数；再次点击同一气泡进入详情。</span>}
-      </div>
-      <footer>
-        <span>{mode === "OPTION" ? "气泡面积＝相对成交量；量能缺失时显示最小圆点；IV位置少于20个快照时属于初步结论。" : "横轴＝趋势分；纵轴＝BOLL位置；面积＝相对成交量（缺失时为最小圆点）；颜色＝RSI状态。"}</span>
-        <span>已绘制 {plotted.length}/{cards.length}{unavailable.length > 0 ? ` · 未入图：${unavailableSummary}` : ""}</span>
-      </footer>
+      {renderChart()}
+      {renderReadout()}
+      <footer>{footerContent}</footer>
+      {expanded && createPortal(
+        <div className="distribution-focus-overlay" onClick={(event) => { if (event.target === event.currentTarget) closeExpanded(); }}>
+          <section ref={expandedDialogRef} className="distribution-focus-dialog" role="dialog" aria-modal="true" aria-labelledby={expandedTitleId}>
+            <header className="distribution-focus-header">
+              <div><span>横屏研究视图</span><h2 id={expandedTitleId}>结构分布 · 放大查看</h2><p>手机旋转为横屏后，可一次看到更多气泡；图内仍可点击标的查看读数。</p></div>
+              <div className="distribution-focus-actions">{renderModeSwitch()}<button ref={closeExpandedButtonRef} className="distribution-focus-close" type="button" onClick={closeExpanded}>关闭</button></div>
+            </header>
+            {renderLegend()}
+            {renderChart(true)}
+            {renderReadout()}
+            <footer>{footerContent}</footer>
+          </section>
+        </div>,
+        document.body,
+      )}
     </section>
   );
 }
 
 export function StockScanner({ cards }: { cards: ScanCard[] }) {
   const [assetFilter, setAssetFilter] = useState<AssetFilter>("ALL");
-  const [activeSignals, setActiveSignals] = useState<SignalFilter[]>([]);
+  const [activeSignal, setActiveSignal] = useState<SignalFilter | null>(null);
   const [query, setQuery] = useState("");
   const [prefetchSymbol, setPrefetchSymbol] = useState<SupportedSymbol | null>(null);
   const [trendSheetSymbol, setTrendSheetSymbol] = useState<SupportedSymbol | null>(null);
@@ -326,14 +406,14 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
     const filtered = cards.filter((card) => {
       if (normalizedQuery && !`${card.symbol} ${card.name} ${card.shortName}`.toLocaleUpperCase().includes(normalizedQuery)) return false;
       if (assetFilter !== "ALL" && card.assetType !== assetFilter) return false;
-      if (activeSignals.length && !activeSignals.some((signal) => matchesResearchSignal(card, signal))) return false;
+      if (activeSignal && !matchesResearchSignal(card, activeSignal)) return false;
       return true;
     });
     return sortCards(filtered, "TREND") as ScanCard[];
-  }, [activeSignals, assetFilter, cards, query]);
+  }, [activeSignal, assetFilter, cards, query]);
 
   const toggleSignal = (signal: SignalFilter) => {
-    setActiveSignals((current) => current.includes(signal) ? current.filter((item) => item !== signal) : [...current, signal]);
+    setActiveSignal((current) => current === signal ? null : signal);
   };
 
   return (
@@ -343,14 +423,15 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
           <div className="scanner-filter-groups">
             <div className="scanner-filter-group">
               <span className="scanner-filter-label">类型</span>
-              <div className="scanner-filters scanner-asset-filters" aria-label="按标的类型筛选">
-                {assetFilters.map((item) => <button type="button" className={assetFilter === item.value ? "active" : ""} aria-pressed={assetFilter === item.value} onClick={() => setAssetFilter(item.value)} key={item.value}><span>{item.label}</span><b>{assetCounts[item.value]}</b></button>)}
+              <div className="scanner-filters scanner-asset-filters" role="radiogroup" aria-label="按标的类型筛选">
+                {assetFilters.map((item) => <button type="button" role="radio" className={assetFilter === item.value ? "active" : ""} aria-checked={assetFilter === item.value} onClick={() => setAssetFilter(item.value)} key={item.value}><span>{item.label}</span><b>{assetCounts[item.value]}</b></button>)}
               </div>
             </div>
             <div className="scanner-filter-group">
               <span className="scanner-filter-label">信号</span>
-              <div className="scanner-filters scanner-signal-filters" aria-label="按研究信号筛选，可多选且满足任一条件">
-                {signalFilters.map((item) => <button type="button" className={activeSignals.includes(item.value) ? "active" : ""} aria-pressed={activeSignals.includes(item.value)} onClick={() => toggleSignal(item.value)} key={item.value}><span>{item.label}</span><b>{signalCounts[item.value]}</b></button>)}
+              <div className="scanner-filters scanner-signal-filters" role="radiogroup" aria-label="按研究信号筛选，单选">
+                <button type="button" role="radio" className={activeSignal === null ? "active" : ""} aria-checked={activeSignal === null} onClick={() => setActiveSignal(null)}><span>全部</span><b>{cards.length}</b></button>
+                {signalFilters.map((item) => <button type="button" role="radio" className={activeSignal === item.value ? "active" : ""} aria-checked={activeSignal === item.value} onClick={() => toggleSignal(item.value)} key={item.value}><span>{item.label}</span><b>{signalCounts[item.value]}</b></button>)}
               </div>
             </div>
           </div>

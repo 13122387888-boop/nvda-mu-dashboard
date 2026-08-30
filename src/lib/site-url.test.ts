@@ -30,5 +30,13 @@ describe("getSiteOrigin", () => {
 
     expect(getSiteOrigin()).toBe("http://localhost:3000");
   });
-});
 
+  it("uses the canonical public origin as the production fallback", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NEXT_PUBLIC_SITE_URL", "");
+    vi.stubEnv("VERCEL_PROJECT_PRODUCTION_URL", "");
+    vi.stubEnv("VERCEL_URL", "");
+
+    expect(getSiteOrigin()).toBe("https://eod-radar.vercel.app");
+  });
+});

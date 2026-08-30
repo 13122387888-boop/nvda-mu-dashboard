@@ -1,4 +1,4 @@
-const TEMPORARY_PRODUCTION_ORIGIN = "https://nvda-mu-dashboard.vercel.app";
+const CANONICAL_PRODUCTION_ORIGIN = "https://eod-radar.vercel.app";
 
 function normalizeOrigin(value: string) {
   const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;
@@ -29,7 +29,6 @@ export function getSiteOrigin() {
   if (configured) return normalizeOrigin(configured);
 
   return process.env.NODE_ENV === "production"
-    ? TEMPORARY_PRODUCTION_ORIGIN
+    ? CANONICAL_PRODUCTION_ORIGIN
     : "http://localhost:3000";
 }
-

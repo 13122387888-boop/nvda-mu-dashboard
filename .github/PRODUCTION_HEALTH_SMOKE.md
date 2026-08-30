@@ -7,7 +7,7 @@ sync. It can also be run manually from the Actions page.
 Configure **Settings → Secrets and variables → Actions → Variables** with:
 
 - `PRODUCTION_BASE_URL`: the production origin, for example
-  `https://nvda-mu-dashboard.vercel.app` (no path required).
+  `https://eod-radar.vercel.app` (no path required).
 
 The URL is not sensitive, so a repository variable is preferred. A repository
 secret with the same name is supported as a fallback. If neither is configured,

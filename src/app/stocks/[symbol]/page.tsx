@@ -101,7 +101,7 @@ export default async function StockPage({ params, searchParams }: { params: Prom
       />
       <DayOverDayStrip change={dashboard.dayOverDay} currentStockDate={dashboard.stockDate} currentOptionsDate={dashboard.optionsSnapshotDate} />
       <ModuleJumpNav symbol={symbol} close={dashboard.quote.close} dailyChangePct={dashboard.quote.dailyChangePct} trendScore={dashboard.trend.score} confidenceLabel={dashboard.trend.confidence.label} optionWindowLabel={dashboard.optionWindowLabel} />
-      <DataScope stockDate={dashboard.stockDate} optionsDate={dashboard.optionsSnapshotDate} expiration={dashboard.optionsExpiration} optionWindow={dashboard.optionWindowLabel} strikeCount={dashboard.optionOpenInterest.length} stockProviders={dashboard.stockProviders} />
+      <DataScope stockDate={dashboard.stockDate} optionsDate={dashboard.optionsSnapshotDate} expiration={dashboard.optionsExpiration} optionWindow={dashboard.optionWindowLabel} strikeCount={dashboard.optionOpenInterest.length} stockProviders={dashboard.stockProviders} optionQuality={dashboard.dataQuality.options} />
 
       <section className="section-block" id="module-price"><ModuleHeading index="01" kicker="价格在哪里" title="趋势、均线和关键价位" description="先看价格在均线上方还是下方，再看离期权重点价位还有多远。" canAnswer="当前趋势、重要价位和距离" cannotAnswer="突破以后一定会涨还是跌" accent="var(--positive)" />
         <SectionPager label="价格与关键价位" accent="var(--positive)" tabs={[

@@ -41,6 +41,15 @@ export const STOCK_HISTORY_START_DATES: Partial<Record<SupportedSymbol, string>>
 
 export const SUPPORTED_SYMBOLS = Object.keys(STOCKS) as SupportedSymbol[];
 
+// MVRL is a listed ETN, but neither the primary provider nor Longbridge currently
+// reports a listed option chain for it. Treat it as stock-data-only so the daily
+// sync does not mislabel a market-coverage limitation as a failed fetch.
+export const NON_OPTION_SYMBOLS = ["MVRL"] as const satisfies readonly SupportedSymbol[];
+export const LIMITED_STOCK_SOURCE_SYMBOLS = ["MVRL"] as const satisfies readonly SupportedSymbol[];
+export const OPTION_SUPPORTED_SYMBOLS = SUPPORTED_SYMBOLS.filter(
+  (symbol) => !(NON_OPTION_SYMBOLS as readonly SupportedSymbol[]).includes(symbol),
+);
+
 export function isSupportedSymbol(value: string): value is SupportedSymbol {
   return Object.hasOwn(STOCKS, value);
 }

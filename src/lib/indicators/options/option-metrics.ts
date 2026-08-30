@@ -2,7 +2,7 @@ import type { OptionContractRecord } from "@/lib/providers/types";
 import { atmIv } from "./atm-iv";
 import { expectedMove } from "./expected-move";
 import { maxPain } from "./max-pain";
-import { optionWall } from "./option-walls";
+import { aggregateOptionWall } from "./option-walls";
 import { putCallOpenInterest } from "./put-call-ratio";
 
 export function nearestExpirationChain(chain: OptionContractRecord[]) {
@@ -31,14 +31,18 @@ export function calculateOptionMetrics(chain: OptionContractRecord[], close: num
       atmIv: null,
     };
   }
+  const latestTradeDate = selected.contracts[0].tradeDate;
+  const latestFutureChain = chain.filter((item) => item.tradeDate === latestTradeDate && item.expiration > latestTradeDate);
   return {
     optionsTradeDate: selected.contracts[0].tradeDate,
     optionsExpiration: selected.expiration,
     ...expectedMove(selected.contracts, close),
     putCallOi: putCallOpenInterest(selected.contracts),
     maxPain: maxPain(selected.contracts, close),
-    callWall: optionWall(selected.contracts, "CALL", close),
-    putWall: optionWall(selected.contracts, "PUT", close),
+    // Wall levels follow the page's default "all expirations" scope. Pricing
+    // metrics above remain tied to the nearest expiration.
+    callWall: aggregateOptionWall(latestFutureChain, "CALL", close),
+    putWall: aggregateOptionWall(latestFutureChain, "PUT", close),
     atmIv: atmIv(selected.contracts, close),
   };
 }

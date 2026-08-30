@@ -1,15 +1,17 @@
 import { addDays, dateToYmd } from "@/lib/dates";
+import { assessOptionDataQuality } from "@/lib/data-quality";
 import { getPrisma } from "@/lib/db/prisma";
 import { Prisma, type StockMetrics } from "@/generated/prisma/client";
 import { unstable_cache } from "next/cache";
 import { bollingerBandsSeries, summarizeBollingerBands, type BollingerBandsSummary } from "@/lib/indicators/bollinger-bands";
 import { calculateGammaExposureProxy } from "@/lib/indicators/options/gamma-exposure";
 import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics";
+import { aggregateOptionWall } from "@/lib/indicators/options/option-walls";
 import { calculateIvSkew } from "@/lib/indicators/options/iv-skew";
 import { addWallPersistence, buildOptionResearchHistory, calculateIvPercentile, calculateIvTermStructure, calculateOiChange, calculateWallProfile } from "@/lib/indicators/options/option-research";
 import { putCallOpenInterest } from "@/lib/indicators/options/put-call-ratio";
 import { movingAverageSeries } from "@/lib/indicators/moving-average";
-import { calculateStockMetrics, calculateTrendConfidence, calculateTrendScore, classifyMarketStatus } from "@/lib/indicators/stock-metrics";
+import { calculateStockMetrics, calculateTrendConfidence, calculateTrendScore, calculateTrendScoreBreakdown, classifyMarketStatus } from "@/lib/indicators/stock-metrics";
 import { realizedVolatility } from "@/lib/indicators/realized-volatility";
 import { latestRelativeVolume, relativeVolumeSeries } from "@/lib/indicators/relative-volume";
 import { calculateVolumeProfile, type VolumeProfile } from "@/lib/indicators/volume-profile";
@@ -139,16 +141,6 @@ function normalizeOptionWindow(value?: string | null): OptionWindow {
 
 function remainingDays(tradeDate: Date, expiration: Date) {
   return Math.ceil((expiration.getTime() - tradeDate.getTime()) / 86_400_000);
-}
-
-function aggregateOptionWall(chain: OptionContractRecord[], side: "CALL" | "PUT", close: number) {
-  const byStrike = new Map<number, number>();
-  for (const contract of chain) {
-    if (contract.optionType !== side || contract.openInterest === null || contract.openInterest <= 0) continue;
-    byStrike.set(contract.strike, (byStrike.get(contract.strike) ?? 0) + contract.openInterest);
-  }
-  return [...byStrike.entries()]
-    .sort((a, b) => b[1] - a[1] || Math.abs(a[0] - close) - Math.abs(b[0] - close))[0]?.[0] ?? null;
 }
 
 export type ExpectedRangeValidation = {
@@ -457,6 +449,7 @@ function buildStockCard(input: {
       close: null,
       dailyChangePct: null,
       trendScore: null,
+      trendBreakdown: null,
       trendConfidence: calculateTrendConfidence({ ma50: null, ma100: null, ma200: null, historyCount }),
       marketStatus: "INSUFFICIENT_DATA" as const,
       gammaRegime: "UNAVAILABLE" as const,
@@ -491,7 +484,8 @@ function buildStockCard(input: {
   const rsi14 = wilderRsi(closes, 14);
   const bollinger = summarizeBollingerBands(bollingerBandsSeries(closes, 20, 2));
   const maStructure = classifyMaStructure({ close, ma50, ma100, ma200 });
-  const trendScore = calculateTrendScore({ close, ma50, ma100, ma200, rsi14 });
+  const trendBreakdown = calculateTrendScoreBreakdown({ close, ma50, ma100, ma200, rsi14 });
+  const trendScore = trendBreakdown?.score ?? null;
   const trendConfidence = calculateTrendConfidence({ ma50, ma100, ma200, historyCount });
   const marketStatus = classifyMarketStatus({ close, ma50, ma100, ma200, rsi14 });
   const ivRank = percentileRank(input.ivHistory, numberOrNull(metrics.atmIv), 1);
@@ -526,6 +520,7 @@ function buildStockCard(input: {
     close,
     dailyChangePct: numberOrNull(metrics.dailyChangePct),
     trendScore,
+    trendBreakdown,
     trendConfidence,
     marketStatus,
     gammaRegime: input.gammaRegime,
@@ -628,7 +623,7 @@ async function loadStockCards() {
   });
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v18"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v19"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();
@@ -641,7 +636,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
   const chartStartDate = addDays(dateToYmd(metrics.tradeDate), -190);
   const calculationStartDate = addDays(dateToYmd(metrics.tradeDate), -450);
-  const [calculationHistory, allOptionRows, optionDateGroups, volumeProfile] = await Promise.all([
+  const [calculationHistory, allOptionRows, optionDateGroups, volumeProfile, latestSyncRun] = await Promise.all([
     prisma.stockDaily.findMany({
       where: { symbol, tradeDate: { gte: new Date(`${calculationStartDate}T00:00:00.000Z`), lte: metrics.tradeDate } },
       orderBy: { tradeDate: "asc" },
@@ -659,6 +654,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
       take: 16,
     }),
     getCachedVolumeProfile(symbol, dateToYmd(metrics.tradeDate)),
+    prisma.syncRun.findFirst({ orderBy: { startedAt: "desc" }, select: { errorMessage: true } }),
   ]);
   const optionHistoryDates = optionDateGroups.map((row) => row.tradeDate);
   const optionHistoryRows = optionHistoryDates.length
@@ -743,6 +739,14 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
       records: optionHistoryRows.filter((row) => row.tradeDate.getTime() === tradeDate.getTime()).map(toOptionRecord),
     }))
     .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+  const symbolSyncWarnings = (latestSyncRun?.errorMessage?.split("\n") ?? [])
+    .filter((line) => line.startsWith(`${symbol}: `))
+    .map((line) => line.slice(symbol.length + 2));
+  const optionDataQuality = assessOptionDataQuality(allOptionRows.map(toOptionRecord), {
+    expectedSymbol: symbol,
+    warnings: symbolSyncWarnings,
+    sourceCoverage: "LIMITED_NEAR_MONEY",
+  });
 
   const dashboards = optionWindows.map((optionWindow) => {
     const optionWindowLimit = OPTION_WINDOW_LIMITS[optionWindow];
@@ -838,6 +842,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
       historicalPositions,
       volumeProfile,
       optionResearchHistory,
+      dataQuality: { options: optionDataQuality },
       dayOverDay,
       priceHistory,
       optionOpenInterest: [...oi.values()].sort((a, b) => a.strike - b.strike),
@@ -851,7 +856,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v16"],
+  ["stock-dashboard-bundle-v17"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

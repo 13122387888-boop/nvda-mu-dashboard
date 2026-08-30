@@ -3,6 +3,7 @@ import type { OptionContractRecord, OptionSide } from "@/lib/providers/types";
 import { atmIv } from "./atm-iv";
 import { contractPrice, expectedMove } from "./expected-move";
 import { maxPain } from "./max-pain";
+import { calculateOptionMetrics } from "./option-metrics";
 import { optionWall } from "./option-walls";
 import { putCallOpenInterest } from "./put-call-ratio";
 
@@ -66,6 +67,19 @@ describe("option indicators", () => {
       contract("CALL", 100, 1, { impliedVolatility: null }),
       contract("CALL", 110, 1, { impliedVolatility: 0.7 }),
     ], 101)).toBeNull();
+  });
+
+  it("uses all future expirations for walls while keeping pricing on the nearest expiration", () => {
+    const multiExpiry = [
+      ...chain,
+      contract("CALL", 120, 100, { expiration: "2026-09-18" }),
+      contract("PUT", 80, 100, { expiration: "2026-09-18" }),
+    ];
+    const result = calculateOptionMetrics(multiExpiry, 100);
+    expect(result.optionsExpiration).toBe("2026-08-28");
+    expect(result.expectedMove).toBe(5);
+    expect(result.callWall).toBe(120);
+    expect(result.putWall).toBe(80);
   });
 
   it("handles missing sides, zero OI and empty chains", () => {

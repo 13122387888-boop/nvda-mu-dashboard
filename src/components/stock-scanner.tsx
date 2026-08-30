@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import type { DayOverDayChange } from "@/components/day-over-day-change";
 import { money, percent } from "@/lib/format";
 import { isQuietStrength, isStructuralChange, sortCards } from "@/lib/home-scanner";
-import type { TrendConfidence } from "@/lib/indicators/stock-metrics";
+import type { TrendConfidence, TrendScoreBreakdown } from "@/lib/indicators/stock-metrics";
 import type { SupportedSymbol } from "@/lib/stocks";
 
 type ScanCard = {
@@ -17,6 +18,7 @@ type ScanCard = {
   close: number | null;
   dailyChangePct: number | null;
   trendScore: number | null;
+  trendBreakdown?: TrendScoreBreakdown | null;
   trendConfidence: TrendConfidence;
   relativeVolume: number | null;
   rsi14: number | null;
@@ -120,6 +122,87 @@ function technicalStatus(card: ScanCard) {
   if (card.rsi14 !== null && card.rsi14 >= 70 && (rvol === null || rvol < 1.5)) return { label: "偏热待确认", tone: "warning" as const };
   if (rvol !== null && rvol <= 0.7) return { label: "成交偏淡", tone: "neutral" as const };
   return { label: card.attention.label, tone: card.attention.tone };
+}
+
+function signedScoreContribution(value: number) {
+  const rounded = Number(value.toFixed(1));
+  return `${rounded > 0 ? "+" : ""}${rounded}`;
+}
+
+function scoreContributionTone(value: number) {
+  if (value > 0) return "positive";
+  if (value < 0) return "negative";
+  return "neutral";
+}
+
+function TrendScoreSheet({ stock, onClose }: { stock: ScanCard | null; onClose: () => void }) {
+  const titleId = useId();
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const previousFocusRef = useRef<HTMLElement | null>(null);
+  const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [active, setActive] = useState(false);
+
+  const requestClose = useCallback(() => {
+    setActive(false);
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+    closeTimer.current = setTimeout(onClose, 240);
+  }, [onClose]);
+
+  useEffect(() => {
+    if (!stock) return;
+    const previousOverflow = document.body.style.overflow;
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = requestAnimationFrame(() => {
+      setActive(true);
+      closeButtonRef.current?.focus();
+    });
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") requestClose();
+      if (event.key === "Tab") {
+        event.preventDefault();
+        closeButtonRef.current?.focus();
+      }
+    };
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+      previousFocusRef.current?.focus();
+    };
+  }, [requestClose, stock]);
+
+  useEffect(() => () => {
+    if (closeTimer.current) clearTimeout(closeTimer.current);
+  }, []);
+
+  if (!stock) return null;
+  const breakdown = stock.trendBreakdown;
+  const trend = trendPresentation(stock.trendScore);
+
+  return createPortal(
+    <div className={`metric-note-overlay trend-score-overlay ${active ? "active" : ""}`} onClick={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
+      <section className="metric-note-sheet trend-score-sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <div className="metric-note-handle" aria-hidden="true" />
+        <div className="metric-note-heading"><span>趋势分组成</span><button ref={closeButtonRef} type="button" onClick={requestClose}>关闭</button></div>
+        <div className="trend-score-sheet-title">
+          <div><span>{stock.symbol}</span><h2 id={titleId}>这只标的的趋势分怎么来</h2></div>
+          <div className="trend-score-sheet-total"><strong>{stock.trendScore ?? "—"}</strong><small>/100</small><span>{trend.label}</span></div>
+        </div>
+        {breakdown ? <>
+          <div className="trend-score-parts trend-score-sheet-parts">
+            <article className="neutral"><span>中性起点</span><strong>50</strong><small>所有标的都从 50 分开始</small></article>
+            <article className={scoreContributionTone(breakdown.pricePosition.total)}><span>现价与可用均线</span><strong>{signedScoreContribution(breakdown.pricePosition.total)}</strong><small>现价相对可用的 50、100、200 日线</small></article>
+            <article className={scoreContributionTone(breakdown.alignment.total)}><span>均线排列</span><strong>{signedScoreContribution(breakdown.alignment.total)}</strong><small>短、中、长期均线的先后顺序</small></article>
+            <article className={scoreContributionTone(breakdown.momentum.contribution)}><span>近期强弱（RSI）</span><strong>{breakdown.momentum.rsi14 === null ? "未纳入" : signedScoreContribution(breakdown.momentum.contribution)}</strong><small>{breakdown.momentum.rsi14 === null ? "RSI 数据暂时不足" : `当前 RSI ${breakdown.momentum.rsi14.toFixed(1)}`}</small></article>
+          </div>
+          <p className="trend-score-sheet-note">从 50 分开始，把三项加减分相加，最终限制在 0–100。趋势分用于比较价格结构，不是上涨概率。</p>
+        </> : <div className="trend-score-unavailable"><b>历史数据还不够</b><span>至少有两条完整均线后，才会显示趋势分组成。</span></div>}
+      </section>
+    </div>,
+    document.body,
+  );
 }
 
 function StructureDistribution({ cards }: { cards: ScanCard[] }) {
@@ -242,6 +325,9 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
   const [activeSignals, setActiveSignals] = useState<SignalFilter[]>([]);
   const [query, setQuery] = useState("");
   const [prefetchSymbol, setPrefetchSymbol] = useState<SupportedSymbol | null>(null);
+  const [trendSheetSymbol, setTrendSheetSymbol] = useState<SupportedSymbol | null>(null);
+  const closeTrendSheet = useCallback(() => setTrendSheetSymbol(null), []);
+  const selectedTrendStock = cards.find((card) => card.symbol === trendSheetSymbol) ?? null;
 
   const assetCounts: Record<AssetFilter, number> = {
     ALL: cards.length,
@@ -300,24 +386,35 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
             const technical = technicalStatus(stock);
             const showVolume = stock.relativeVolume !== null && (stock.relativeVolume >= 1.3 || stock.relativeVolume <= 0.7);
             return (
-              <Link
+              <article
                 className="scanner-row"
-                href={`/stocks/${stock.symbol}`}
-                prefetch={prefetchSymbol === stock.symbol ? null : false}
-                onMouseEnter={() => setPrefetchSymbol(stock.symbol)}
-                onFocus={() => setPrefetchSymbol(stock.symbol)}
                 style={{ "--accent": stock.accent } as React.CSSProperties}
                 key={stock.symbol}
               >
+                <Link
+                  className="scanner-row-hitbox"
+                  href={`/stocks/${stock.symbol}`}
+                  prefetch={prefetchSymbol === stock.symbol ? null : false}
+                  onMouseEnter={() => setPrefetchSymbol(stock.symbol)}
+                  onFocus={() => setPrefetchSymbol(stock.symbol)}
+                  aria-label={`查看 ${stock.symbol} 详情`}
+                />
                 <div className="scanner-stock"><b>{stock.symbol}</b><span>{stock.shortName}</span></div>
                 <div className="scanner-price"><b>{money(stock.close)}</b><span className={stock.dailyChangePct !== null && stock.dailyChangePct >= 0 ? "positive" : "negative"}>{stock.dailyChangePct === null ? "等待同步" : `${stock.dailyChangePct >= 0 ? "+" : ""}${percent(stock.dailyChangePct, true)}`}</span></div>
-                <div className="scanner-signal">
+                <button
+                  type="button"
+                  className="scanner-signal scanner-trend-trigger"
+                  onClick={() => setTrendSheetSymbol(stock.symbol)}
+                  aria-haspopup="dialog"
+                  aria-expanded={trendSheetSymbol === stock.symbol}
+                  aria-label={`${stock.symbol} 趋势分 ${stock.trendScore ?? "暂无"}，查看组成`}
+                >
                   <small>趋势判断</small><strong>{stock.trendScore ?? "—"}</strong>
                   <b><i className={`status-dot ${trend.tone}`} />{trend.label}</b>
                   <span className="scanner-confidence" title={stock.trendConfidence.reason}>{confidencePresentation(stock.trendConfidence)}</span>
                   {showVolume && <em>量能 {stock.relativeVolume!.toFixed(1)}×</em>}
                   <span className={`scanner-mobile-gamma ${gammaTone[stock.gammaRegime]}`}>{gammaShortLabels[stock.gammaRegime]}</span>
-                </div>
+                </button>
                 <div className={`scanner-gamma ${gammaTone[stock.gammaRegime]}`}><small>期权结构</small><b>{gammaLabels[stock.gammaRegime]}</b><em>{stock.ivPercentile.label}</em></div>
                 <div className="scanner-change">
                   <small>主要关注理由</small>
@@ -325,13 +422,14 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
                 </div>
                 <time dateTime={stock.dataDate ?? undefined}>{stock.dataDate ?? "—"}</time>
                 <i className="scanner-arrow" aria-hidden="true">→</i>
-              </Link>
+              </article>
             );
           })}
           {!visibleCards.length && <div className="scanner-empty">当前筛选或搜索下没有符合条件的标的。</div>}
         </div>
       </div>
       <footer><span>MA判断方向，RSI与BOLL描述短线状态，成交量只用于确认参与度；触及上下轨不等同于买卖信号。</span><b>用于研究排序，不构成投资建议。</b></footer>
+      <TrendScoreSheet stock={selectedTrendStock} onClose={closeTrendSheet} />
     </section>
   );
 }

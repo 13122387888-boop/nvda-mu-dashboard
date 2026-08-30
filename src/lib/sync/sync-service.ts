@@ -1,17 +1,19 @@
 import { addDays, dateToYmd, parseYmd } from "@/lib/dates";
 import { getPrisma } from "@/lib/db/prisma";
+import { assessOptionDataQuality, assessStockDataQuality, optionSnapshotRegression, type OptionDataQuality, type StockDataQuality } from "@/lib/data-quality";
 import { sanitizeError } from "@/lib/env";
+import { Prisma } from "@/generated/prisma/client";
 import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics";
 import { calculateStockMetrics } from "@/lib/indicators/stock-metrics";
 import { OnclickMediaProvider } from "@/lib/providers/onclickmedia/onclickmedia-provider";
 import type { OptionContractRecord, StockDailyRecord, SupportedSymbol } from "@/lib/providers/types";
-import { STOCK_HISTORY_START_DATES, SUPPORTED_SYMBOLS } from "@/lib/stocks";
+import { LIMITED_STOCK_SOURCE_SYMBOLS, NON_OPTION_SYMBOLS, STOCK_HISTORY_START_DATES, SUPPORTED_SYMBOLS } from "@/lib/stocks";
 
 const SYMBOLS: SupportedSymbol[] = SUPPORTED_SYMBOLS;
 const CREATE_BATCH_SIZE = 200;
 // Keep the cron comfortably below Vercel's five-minute limit as the watchlist
 // grows, while remaining gentle on the upstream provider.
-const SYNC_CONCURRENCY = 2;
+const SYNC_CONCURRENCY = 3;
 
 type SymbolSyncResult = {
   status: "SUCCESS" | "PARTIAL" | "FAILED";
@@ -21,6 +23,10 @@ type SymbolSyncResult = {
   stockDate: string | null;
   optionsDate: string | null;
   warnings: string[];
+  dataQuality: {
+    stock: StockDataQuality;
+    options: OptionDataQuality;
+  };
 };
 
 export type SyncSummary = {
@@ -68,7 +74,7 @@ async function upsertStockRows(rows: StockDailyRecord[]) {
   }
 }
 
-async function upsertOptionRows(rows: OptionContractRecord[]) {
+async function replaceOptionSnapshots(rows: OptionContractRecord[]) {
   const prisma = getPrisma();
   const data = rows.map((row) => ({
     symbol: row.symbol,
@@ -90,7 +96,72 @@ async function upsertOptionRows(rows: OptionContractRecord[]) {
     vega: row.vega,
     provider: row.provider,
   }));
-  for (const batch of chunks(data)) await prisma.optionEod.createMany({ data: batch, skipDuplicates: true });
+  const snapshots = new Map<string, typeof data>();
+  for (const row of data) {
+    const key = `${row.symbol}|${dateToYmd(row.tradeDate)}`;
+    const group = snapshots.get(key) ?? [];
+    group.push(row);
+    snapshots.set(key, group);
+  }
+
+  // The provider can revise OI, quotes and Greeks after an early EOD snapshot.
+  // Replace one symbol/date snapshot in a single statement so readers never see
+  // a half-deleted chain and same-day revisions are not ignored.
+  for (const snapshot of snapshots.values()) {
+    const first = snapshot[0];
+    const [existing] = await prisma.$queryRaw<Array<{ recordCount: number; expirationCount: number }>>(Prisma.sql`
+      SELECT COUNT(*)::int AS "recordCount", COUNT(DISTINCT "expiration")::int AS "expirationCount"
+      FROM "option_eod"
+      WHERE "symbol" = ${first.symbol} AND "trade_date" = ${first.tradeDate}
+    `);
+    const regression = optionSnapshotRegression(
+      existing ?? { recordCount: 0, expirationCount: 0 },
+      { recordCount: snapshot.length, expirationCount: new Set(snapshot.map((row) => row.expiration.getTime())).size },
+    );
+    if (regression) throw new Error(`Option snapshot downgrade blocked: ${regression}`);
+    const values = snapshot.map((row) => Prisma.sql`(
+      ${row.symbol}, ${row.tradeDate}, ${row.expiration}, ${row.optionType}::"OptionType", ${row.strike},
+      ${row.contractSymbol}, ${row.contractMultiplier}, ${row.bid}, ${row.ask}, ${row.last}, ${row.volume},
+      ${row.openInterest}, ${row.impliedVolatility}, ${row.delta}, ${row.gamma}, ${row.theta}, ${row.vega}, ${row.provider}, NOW(), NOW()
+    )`);
+    const keys = snapshot.map((row) => Prisma.sql`(${row.expiration}::date, ${row.optionType}::"OptionType", ${row.strike}::numeric)`);
+    await prisma.$executeRaw(Prisma.sql`
+      WITH upserted AS (
+        INSERT INTO "option_eod" (
+          "symbol", "trade_date", "expiration", "option_type", "strike", "contract_symbol",
+          "contract_multiplier", "bid", "ask", "last", "volume", "open_interest",
+          "implied_volatility", "delta", "gamma", "theta", "vega", "provider", "created_at", "updated_at"
+        ) VALUES ${Prisma.join(values)}
+        ON CONFLICT ("symbol", "trade_date", "expiration", "option_type", "strike") DO UPDATE SET
+          "contract_symbol" = EXCLUDED."contract_symbol",
+          "contract_multiplier" = EXCLUDED."contract_multiplier",
+          "bid" = EXCLUDED."bid",
+          "ask" = EXCLUDED."ask",
+          "last" = EXCLUDED."last",
+          "volume" = EXCLUDED."volume",
+          "open_interest" = EXCLUDED."open_interest",
+          "implied_volatility" = EXCLUDED."implied_volatility",
+          "delta" = EXCLUDED."delta",
+          "gamma" = EXCLUDED."gamma",
+          "theta" = EXCLUDED."theta",
+          "vega" = EXCLUDED."vega",
+          "provider" = EXCLUDED."provider",
+          "updated_at" = EXCLUDED."updated_at"
+        RETURNING 1
+      )
+      DELETE FROM "option_eod"
+      WHERE "symbol" = ${first.symbol}
+        AND "trade_date" = ${first.tradeDate}
+        AND ("expiration", "option_type", "strike") NOT IN (VALUES ${Prisma.join(keys)})
+    `);
+  }
+}
+
+function compactProviderWarnings(warnings: string[]) {
+  const skippedRows = warnings.filter((warning) => /^Skipped invalid option row\b/i.test(warning));
+  const retained = warnings.filter((warning) => !/^Skipped invalid option row\b/i.test(warning));
+  if (skippedRows.length) retained.push(`Skipped ${skippedRows.length} invalid option rows`);
+  return retained;
 }
 
 async function loadStockHistory(symbol: SupportedSymbol): Promise<StockDailyRecord[]> {
@@ -123,6 +194,9 @@ async function syncSymbol(symbol: SupportedSymbol, mode: "bootstrap" | "incremen
   let optionsDate: string | null = null;
   let stockOk = false;
   let optionsOk = false;
+  const optionsExpected = !(NON_OPTION_SYMBOLS as readonly SupportedSymbol[]).includes(symbol);
+  let stockQuality = assessStockDataQuality([], { expectedSymbol: symbol });
+  let optionQuality = assessOptionDataQuality([], { expectedSymbol: symbol, sourceCoverage: "LIMITED_NEAR_MONEY" });
 
   try {
     const latestAvailable = await provider.getLatestAvailableStockDate(symbol);
@@ -134,27 +208,60 @@ async function syncSymbol(symbol: SupportedSymbol, mode: "bootstrap" | "incremen
     const knownHistoryStart = STOCK_HISTORY_START_DATES[symbol];
     const startDate = knownHistoryStart && requestedStart < knownHistoryStart ? knownHistoryStart : requestedStart;
     const result = await provider.getStockDailyHistory({ symbol, startDate, endDate: latestAvailable });
+    stockQuality = assessStockDataQuality(result.records, { expectedSymbol: symbol, expectedLatestDate: latestAvailable });
+    if (stockQuality.level === "FAILED") throw new Error(`Stock data quality failed: ${stockQuality.reasons.join("; ")}`);
     await upsertStockRows(result.records);
     stockRows = result.records.length;
-    stockDate = result.records.at(-1)?.tradeDate ?? latestAvailable;
+    stockDate = stockQuality.stats.latestDate ?? latestAvailable;
     warnings.push(...result.warnings);
     stockOk = true;
   } catch (error) {
-    warnings.push(`Stock: ${sanitizeError(error)}`);
+    const providerError = sanitizeError(error);
+    if ((LIMITED_STOCK_SOURCE_SYMBOLS as readonly SupportedSymbol[]).includes(symbol)) {
+      const [stored, marketLatest] = await Promise.all([
+        prisma.stockDaily.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" }, select: { tradeDate: true } }),
+        prisma.stockDaily.aggregate({ where: { symbol: { in: SUPPORTED_SYMBOLS } }, _max: { tradeDate: true } }),
+      ]);
+      if (stored && marketLatest._max.tradeDate && stored.tradeDate.getTime() === marketLatest._max.tradeDate.getTime()) {
+        stockDate = dateToYmd(stored.tradeDate);
+        stockQuality = {
+          level: "LIMITED",
+          reasons: ["Primary provider is unsupported; retained the current fallback-provider close"],
+          stats: { recordCount: 0, latestDate: stockDate },
+        };
+        stockOk = true;
+        warnings.push(`Stock source limited: ${providerError}; retained current fallback close ${stockDate}`);
+      } else {
+        warnings.push(`Stock: ${providerError}`);
+      }
+    } else {
+      warnings.push(`Stock: ${providerError}`);
+    }
   }
 
   let optionRecords: OptionContractRecord[] = [];
-  try {
-    const result = await provider.getLatestOptionChain({ symbol });
-    optionRecords = result.records;
-    if (!optionRecords.length) throw new Error("No accessible EOD option contracts were returned");
-    await upsertOptionRows(optionRecords);
-    optionRows = optionRecords.length;
-    optionsDate = optionRecords[0].tradeDate;
-    warnings.push(...result.warnings);
+  if (optionsExpected) {
+    try {
+      const result = await provider.getLatestOptionChain({ symbol });
+      optionQuality = assessOptionDataQuality(result.records, { expectedSymbol: symbol, warnings: result.warnings, sourceCoverage: "LIMITED_NEAR_MONEY" });
+      if (optionQuality.level === "FAILED") throw new Error(`Option data quality failed: ${optionQuality.reasons.join("; ")}`);
+      optionRecords = result.records;
+      await replaceOptionSnapshots(optionRecords);
+      optionRows = optionRecords.length;
+      optionsDate = optionQuality.stats.tradeDate;
+      warnings.push(...compactProviderWarnings(result.warnings));
+      optionsOk = true;
+    } catch (error) {
+      optionRecords = [];
+      warnings.push(`Options: ${sanitizeError(error)}`);
+    }
+  } else {
+    optionQuality = {
+      level: "GOOD",
+      reasons: ["No listed option chain is expected for this symbol"],
+      stats: { tradeDate: null, recordCount: 0, expirationCount: 0, strikeCount: 0, callCount: 0, putCount: 0, oiCoveragePct: 0, ivCoveragePct: 0, gammaCoveragePct: 0, upstreamCoverage: null },
+    };
     optionsOk = true;
-  } catch (error) {
-    warnings.push(`Options: ${sanitizeError(error)}`);
   }
 
   try {
@@ -221,46 +328,61 @@ async function syncSymbol(symbol: SupportedSymbol, mode: "bootstrap" | "incremen
   }
 
   const status = stockOk && optionsOk && metricsRows === 1 ? "SUCCESS" : stockOk || optionsOk || metricsRows === 1 ? "PARTIAL" : "FAILED";
-  return { status, stockRows, optionRows, metricsRows, stockDate, optionsDate, warnings };
+  return { status, stockRows, optionRows, metricsRows, stockDate, optionsDate, warnings, dataQuality: { stock: stockQuality, options: optionQuality } };
 }
 
 export async function runSync(input: { triggerType: "MANUAL" | "CRON"; mode: "bootstrap" | "incremental" }): Promise<SyncSummary> {
   const prisma = getPrisma();
   const startedAt = new Date();
+  const abandonedBefore = new Date(startedAt.getTime() - 8 * 60_000);
+  await prisma.syncRun.updateMany({
+    where: { status: "RUNNING", startedAt: { lt: abandonedBefore } },
+    data: { status: "FAILED", completedAt: startedAt, errorMessage: "Sync exceeded the execution window and was marked as abandoned" },
+  });
+  const activeRun = await prisma.syncRun.findFirst({ where: { status: "RUNNING", startedAt: { gte: abandonedBefore } }, select: { id: true } });
+  if (activeRun) throw new Error("A data sync is already running");
   const run = await prisma.syncRun.create({
     data: { triggerType: input.triggerType, status: "RUNNING", symbols: SYMBOLS },
   });
   const results = {} as Record<SupportedSymbol, SymbolSyncResult>;
 
-  for (let index = 0; index < SYMBOLS.length; index += SYNC_CONCURRENCY) {
-    const batch = SYMBOLS.slice(index, index + SYNC_CONCURRENCY);
-    await Promise.all(batch.map(async (symbol) => {
-      console.info(`[SYNC] ${symbol} (${input.mode})`);
-      results[symbol] = await syncSymbol(symbol, input.mode);
-      console.info(`[SYNC] ${symbol} status=${results[symbol].status} stock=${results[symbol].stockRows} options=${results[symbol].optionRows}`);
-    }));
+  try {
+    for (let index = 0; index < SYMBOLS.length; index += SYNC_CONCURRENCY) {
+      const batch = SYMBOLS.slice(index, index + SYNC_CONCURRENCY);
+      await Promise.all(batch.map(async (symbol) => {
+        console.info(`[SYNC] ${symbol} (${input.mode})`);
+        results[symbol] = await syncSymbol(symbol, input.mode);
+        console.info(`[SYNC] ${symbol} status=${results[symbol].status} stock=${results[symbol].stockRows} options=${results[symbol].optionRows}`);
+      }));
+    }
+
+    const statuses = Object.values(results).map((result) => result.status);
+    const status = statuses.every((value) => value === "SUCCESS")
+      ? "SUCCESS"
+      : statuses.every((value) => value === "FAILED")
+        ? "FAILED"
+        : "PARTIAL";
+    const completedAt = new Date();
+    const allWarnings = SYMBOLS.flatMap((symbol) => results[symbol].warnings.map((warning) => `${symbol}: ${warning}`));
+
+    await prisma.syncRun.update({
+      where: { id: run.id },
+      data: {
+        status,
+        completedAt,
+        stockRows: Object.values(results).reduce((sum, result) => sum + result.stockRows, 0),
+        optionRows: Object.values(results).reduce((sum, result) => sum + result.optionRows, 0),
+        metricsRows: Object.values(results).reduce((sum, result) => sum + result.metricsRows, 0),
+        errorMessage: allWarnings.length ? allWarnings.join("\n").slice(0, 16_000) : null,
+      },
+    });
+
+    return { status, startedAt: startedAt.toISOString(), completedAt: completedAt.toISOString(), symbols: results };
+  } catch (error) {
+    await prisma.syncRun.update({
+      where: { id: run.id },
+      data: { status: "FAILED", completedAt: new Date(), errorMessage: sanitizeError(error) },
+    }).catch(() => undefined);
+    throw error;
   }
-
-  const statuses = Object.values(results).map((result) => result.status);
-  const status = statuses.every((value) => value === "SUCCESS")
-    ? "SUCCESS"
-    : statuses.every((value) => value === "FAILED")
-      ? "FAILED"
-      : "PARTIAL";
-  const completedAt = new Date();
-  const allWarnings = SYMBOLS.flatMap((symbol) => results[symbol].warnings.map((warning) => `${symbol}: ${warning}`));
-
-  await prisma.syncRun.update({
-    where: { id: run.id },
-    data: {
-      status,
-      completedAt,
-      stockRows: Object.values(results).reduce((sum, result) => sum + result.stockRows, 0),
-      optionRows: Object.values(results).reduce((sum, result) => sum + result.optionRows, 0),
-      metricsRows: Object.values(results).reduce((sum, result) => sum + result.metricsRows, 0),
-      errorMessage: allWarnings.length ? allWarnings.join("\n").slice(0, 4000) : null,
-    },
-  });
-
-  return { status, startedAt: startedAt.toISOString(), completedAt: completedAt.toISOString(), symbols: results };
 }

@@ -268,10 +268,12 @@ async function syncSymbol(symbol: SupportedSymbol, mode: "bootstrap" | "incremen
     const history = await loadStockHistory(symbol);
     const stock = calculateStockMetrics(history);
     if (!stock) throw new Error("No stock history is available for metric calculation");
-    if (!optionRecords.length) {
-      const latestOption = await prisma.optionEod.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" }, select: { tradeDate: true } });
-      if (latestOption) {
-        const rows = await prisma.optionEod.findMany({ where: { symbol, tradeDate: latestOption.tradeDate } });
+    optionRecords = optionRecords.filter((row) => row.tradeDate === stock.tradeDate);
+    if (optionsExpected && !optionRecords.length) {
+      const matchingTradeDate = parseYmd(stock.tradeDate);
+      const matchingOption = await prisma.optionEod.findFirst({ where: { symbol, tradeDate: matchingTradeDate }, select: { tradeDate: true } });
+      if (matchingOption) {
+        const rows = await prisma.optionEod.findMany({ where: { symbol, tradeDate: matchingOption.tradeDate } });
         optionRecords = rows.map((row) => ({
           symbol,
           tradeDate: dateToYmd(row.tradeDate),
@@ -293,6 +295,10 @@ async function syncSymbol(symbol: SupportedSymbol, mode: "bootstrap" | "incremen
           provider: "ONCLICKMEDIA",
         }));
       }
+    }
+    if (optionsExpected && !optionRecords.length) {
+      optionsOk = false;
+      warnings.push(`Options: no ${stock.tradeDate} snapshot is available; option conclusions were left unavailable`);
     }
     const options = calculateOptionMetrics(optionRecords, stock.close);
     const metricData = {

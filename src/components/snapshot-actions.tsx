@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { SITE_NAME } from "@/lib/site";
 
 export type SnapshotExportData = {
   symbol: string;
@@ -21,16 +22,17 @@ export type SnapshotExportData = {
   gamma: string;
 };
 
-const PUBLIC_ORIGIN = "https://eod-radar.vercel.app";
-
 function snapshotUrlFor(data: SnapshotExportData) {
   const query = typeof window === "undefined" ? "" : window.location.search;
-  return `${PUBLIC_ORIGIN}/stocks/${data.symbol}/snapshot${query}`;
+  const path = `/stocks/${data.symbol}/snapshot${query}`;
+  return typeof window === "undefined"
+    ? path
+    : new URL(path, window.location.origin).toString();
 }
 
 function shareText(data: SnapshotExportData) {
   return [
-    `${data.symbol} ${data.name}｜${data.stockDate} 收盘研究`,
+    `${data.symbol} ${data.name}｜${data.stockDate} ${SITE_NAME}`,
     data.summary,
     `趋势：${data.trend}｜Gamma：${data.gamma}`,
     `关键价位：看跌墙 ${data.putWall}｜看涨墙 ${data.callWall}`,
@@ -60,7 +62,7 @@ export function SnapshotActions({ data }: { data: SnapshotExportData }) {
     setStatus("");
     try {
       await navigator.share({
-        title: `${data.symbol} 收盘研究`,
+        title: `${data.symbol} ${SITE_NAME}`,
         text: shareText(data),
         url: snapshotUrlFor(data),
       });

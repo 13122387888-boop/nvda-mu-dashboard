@@ -27,6 +27,7 @@ export default async function Home() {
       bollinger: { middle: null, upper: null, lower: null, percentB: null, bandwidth: null, bandwidthPercentile: null, state: "UNAVAILABLE" as const, sampleSize: 0 },
       marketStatus: "INSUFFICIENT_DATA",
       gammaRegime: "UNAVAILABLE" as const,
+      optionFreshness: { status: "UNAVAILABLE" as const, isCurrent: false, stockDate: null, metricsDate: null, snapshotDate: null, ageBusinessDays: null, reason: "当前没有可用的期权快照" },
       attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
       dayOverDay: null,
       ivPercentile: { percentile: null, sampleSize: 0, label: "样本积累中" },

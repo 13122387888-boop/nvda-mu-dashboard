@@ -1,0 +1,101 @@
+name: Production health smoke
+
+on:
+  workflow_dispatch:
+  schedule:
+    # The data sync starts at 05:30 UTC; allow it up to 45 minutes to finish.
+    - cron: "15 6 * * 2-6"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-health-smoke
+  cancel-in-progress: false
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL || secrets.PRODUCTION_BASE_URL }}
+    steps:
+      - name: Resolve health endpoint
+        id: endpoint
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${PRODUCTION_BASE_URL:-}" ]]; then
+            echo "::error::Configure the repository variable PRODUCTION_BASE_URL (preferred) or a secret with the same name."
+            exit 1
+          fi
+          if [[ ! "$PRODUCTION_BASE_URL" =~ ^https://[^[:space:]]+$ ]]; then
+            echo "::error::PRODUCTION_BASE_URL must be an absolute https:// URL."
+            exit 1
+          fi
+          base_url="${PRODUCTION_BASE_URL%/}"
+          echo "health_url=${base_url}/api/health" >> "$GITHUB_OUTPUT"
+
+      - name: Request production health
+        shell: bash
+        env:
+          HEALTH_URL: ${{ steps.endpoint.outputs.health_url }}
+        run: |
+          set -euo pipefail
+          http_code="$(curl --silent --show-error --location \
+            --retry 2 --retry-all-errors --connect-timeout 10 --max-time 30 \
+            --output health.json --write-out '%{http_code}' "$HEALTH_URL")"
+          if [[ "$http_code" != "200" ]]; then
+            echo "::error::Health endpoint returned HTTP ${http_code}."
+            head -c 2000 health.json || true
+            exit 1
+          fi
+
+      - name: Validate health payload
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+
+          let health;
+          try {
+            health = JSON.parse(fs.readFileSync("health.json", "utf8"));
+          } catch (error) {
+            console.error(`::error::Health endpoint did not return valid JSON: ${error.message}`);
+            process.exit(1);
+          }
+
+          const failures = [];
+          if (health.database !== "connected") failures.push(`database=${health.database ?? "missing"}`);
+          if (health.status !== "ok") failures.push(`status=${health.status ?? "missing"}`);
+          if (!health.asOf) failures.push("asOf is missing");
+          if (health.latestRun?.status !== "SUCCESS") failures.push(`latestRun=${health.latestRun?.status ?? "missing"}`);
+          if (health.currentStockSymbols !== health.expectedSymbols) {
+            failures.push(`stocks=${health.currentStockSymbols ?? "?"}/${health.expectedSymbols ?? "?"}`);
+          }
+          if (health.alignedMetricsSymbols !== health.expectedSymbols) {
+            failures.push(`metrics=${health.alignedMetricsSymbols ?? "?"}/${health.expectedSymbols ?? "?"}`);
+          }
+          if (health.optionSymbols !== health.expectedOptionSymbols) {
+            failures.push(`options=${health.optionSymbols ?? "?"}/${health.expectedOptionSymbols ?? "?"}`);
+          }
+          if (health.alignedOptionSymbols !== health.expectedOptionSymbols) {
+            failures.push(`alignedOptions=${health.alignedOptionSymbols ?? "?"}/${health.expectedOptionSymbols ?? "?"}`);
+          }
+
+          const summary = [
+            "## Production health smoke",
+            `- Status: ${failures.length ? "FAILED" : "OK"}`,
+            `- Data date: ${health.asOf ?? "missing"}`,
+            `- Latest sync: ${health.latestRun?.status ?? "missing"}`,
+            `- Stocks: ${health.currentStockSymbols ?? "?"}/${health.expectedSymbols ?? "?"}`,
+            `- Options: ${health.alignedOptionSymbols ?? "?"}/${health.expectedOptionSymbols ?? "?"}`,
+          ].join("\n");
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
+
+          if (failures.length) {
+            console.error(`::error::Production health is degraded: ${failures.join(", ")}`);
+            process.exit(1);
+          }
+          console.log(`Production health is OK for ${health.asOf}.`);
+          NODE

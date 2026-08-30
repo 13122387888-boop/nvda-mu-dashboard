@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  assessOptionConclusionFreshness,
   classifyMaStructure,
   classifyExpectedRange,
   ivPercentileLabel,
@@ -60,6 +61,58 @@ describe("ivPercentileLabel", () => {
   });
 });
 
+describe("assessOptionConclusionFreshness", () => {
+  it("allows an aligned snapshot within the business-day tolerance", () => {
+    expect(assessOptionConclusionFreshness({
+      stockDate: "2026-08-28",
+      snapshotDate: "2026-08-28",
+      asOfDate: "2026-08-31",
+    })).toMatchObject({ status: "CURRENT", isCurrent: true, ageBusinessDays: 1 });
+  });
+
+  it("marks a different-date snapshot as historical even when it is only one day behind", () => {
+    expect(assessOptionConclusionFreshness({
+      stockDate: "2026-08-28",
+      snapshotDate: "2026-08-27",
+      asOfDate: "2026-08-28",
+    })).toMatchObject({ status: "HISTORICAL", isCurrent: false, snapshotDate: "2026-08-27" });
+  });
+
+  it("requires the snapshot to match both the latest stock row and metrics date", () => {
+    expect(assessOptionConclusionFreshness({
+      stockDate: "2026-08-28",
+      metricsDate: "2026-08-27",
+      snapshotDate: "2026-08-27",
+      asOfDate: "2026-08-28",
+    })).toMatchObject({ status: "HISTORICAL", isCurrent: false });
+  });
+
+  it("marks an aligned but old snapshot as historical", () => {
+    expect(assessOptionConclusionFreshness({
+      stockDate: "2026-08-26",
+      snapshotDate: "2026-08-26",
+      asOfDate: "2026-08-28",
+    })).toMatchObject({ status: "HISTORICAL", isCurrent: false, ageBusinessDays: 2 });
+  });
+
+  it("rejects a future-dated snapshot", () => {
+    expect(assessOptionConclusionFreshness({
+      stockDate: "2026-08-31",
+      snapshotDate: "2026-08-31",
+      asOfDate: "2026-08-30",
+    })).toMatchObject({ status: "HISTORICAL", isCurrent: false });
+  });
+
+  it("requires a stored snapshot rather than trusting the metrics date alone", () => {
+    expect(assessOptionConclusionFreshness({
+      stockDate: "2026-08-28",
+      snapshotDate: "2026-08-28",
+      hasSnapshot: false,
+      asOfDate: "2026-08-28",
+    })).toMatchObject({ status: "UNAVAILABLE", isCurrent: false });
+  });
+});
+
 describe("stockAttention", () => {
   type AttentionInput = Parameters<typeof stockAttention>[0];
   type Change = NonNullable<AttentionInput["dayOverDay"]>;
@@ -73,12 +126,21 @@ describe("stockAttention", () => {
     expectedRange: { lower: 90, upper: 110, state: "INSIDE", boundaryDistancePct: 10 },
     relativeVolume: { volume: 100, averageVolume: 100, relativeVolume: 1 },
   };
+  const currentOptionFreshness = {
+    status: "CURRENT" as const,
+    isCurrent: true,
+    stockDate: "2026-08-27",
+    metricsDate: "2026-08-27",
+    snapshotDate: "2026-08-27",
+    ageBusinessDays: 0,
+    reason: "期权快照与当前股票数据对齐",
+  };
 
   function attention(change: Change, overrides: Partial<AttentionInput> = {}) {
     return stockAttention({
       close: 100,
       marketStatus: "NEUTRAL",
-      optionsDate: "2026-08-27",
+      optionFreshness: currentOptionFreshness,
       gammaRegime: change.gamma.current,
       callWall: 105,
       putWall: 90,
@@ -116,5 +178,28 @@ describe("stockAttention", () => {
       expectedRange: { lower: 90, upper: 101, state: "NEAR_UPPER", boundaryDistancePct: 1 },
     }, { callWall: 120, putWall: 80 });
     expect(result.label).toBe("结构暂无明显异常");
+  });
+
+  it("never promotes stale Gamma, wall or expected-range signals as current attention", () => {
+    const result = attention({
+      ...baseChange,
+      gamma: { previous: "POSITIVE", current: "NEGATIVE" },
+      callWall: { previous: 100, current: 104, delta: 4 },
+      expectedRange: { lower: 90, upper: 99, state: "ABOVE", boundaryDistancePct: 1 },
+    }, {
+      optionFreshness: {
+        status: "HISTORICAL",
+        isCurrent: false,
+        stockDate: "2026-08-27",
+        metricsDate: "2026-08-27",
+        snapshotDate: "2026-08-26",
+        ageBusinessDays: null,
+        reason: "期权快照 2026-08-26 与股票日期 2026-08-27 不一致",
+      },
+      gammaRegime: "NEGATIVE",
+      callWall: 101,
+      putWall: 99,
+    });
+    expect(result).toMatchObject({ label: "期权快照非当前", tone: "warning" });
   });
 });

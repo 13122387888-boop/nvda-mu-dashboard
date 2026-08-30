@@ -99,9 +99,9 @@ export default async function StockPage({ params, searchParams }: { params: Prom
         stockDate={dashboard.stockDate}
         levels={keyLevels}
       />
-      <DayOverDayStrip change={dashboard.dayOverDay} currentStockDate={dashboard.stockDate} currentOptionsDate={dashboard.optionsSnapshotDate} />
+      <DayOverDayStrip change={dashboard.dayOverDay} currentStockDate={dashboard.stockDate} currentOptionsDate={dashboard.optionsDate} />
       <ModuleJumpNav symbol={symbol} close={dashboard.quote.close} dailyChangePct={dashboard.quote.dailyChangePct} trendScore={dashboard.trend.score} confidenceLabel={dashboard.trend.confidence.label} optionWindowLabel={dashboard.optionWindowLabel} />
-      <DataScope stockDate={dashboard.stockDate} optionsDate={dashboard.optionsSnapshotDate} expiration={dashboard.optionsExpiration} optionWindow={dashboard.optionWindowLabel} strikeCount={dashboard.optionOpenInterest.length} stockProviders={dashboard.stockProviders} optionQuality={dashboard.dataQuality.options} />
+      <DataScope stockDate={dashboard.stockDate} optionsDate={dashboard.optionsSnapshotDate} optionFreshness={dashboard.optionFreshness} expiration={dashboard.optionsExpiration} optionWindow={dashboard.optionWindowLabel} strikeCount={dashboard.optionOpenInterest.length} stockProviders={dashboard.stockProviders} optionQuality={dashboard.dataQuality.options} />
 
       <section className="section-block" id="module-price"><ModuleHeading index="01" kicker="价格在哪里" title="趋势、均线和关键价位" description="先看价格在均线上方还是下方，再看离期权重点价位还有多远。" canAnswer="当前趋势、重要价位和距离" cannotAnswer="突破以后一定会涨还是跌" accent="var(--positive)" />
         <SectionPager label="价格与关键价位" accent="var(--positive)" tabs={[
@@ -122,12 +122,12 @@ export default async function StockPage({ params, searchParams }: { params: Prom
       </section>
 
       <section className="section-block" id="module-options"><ModuleHeading index="03" kicker="期权怎么看" title="合约集中在哪里，市场预计多大波动" description="看未结束合约集中在哪些价位，以及期权价格正在计入多大的到期前波动。" canAnswer="合约集中价位、最近到期波动范围和波动结构" cannotAnswer="谁在买卖，或者未来价格一定到哪里" accent="var(--warning)" />
-        <OptionWindowSelector key={dashboard.optionWindow} symbol={symbol} selected={dashboard.optionWindow} counts={dashboard.optionWindowCounts} />
+        {dashboard.optionFreshness.isCurrent && <OptionWindowSelector key={dashboard.optionWindow} symbol={symbol} selected={dashboard.optionWindow} counts={dashboard.optionWindowCounts} />}
         <div className="option-scope-summary">
-          <span><b>持仓统计</b><em>{dashboard.optionWindowLabel} · {dashboard.optionWindowCounts[dashboard.optionWindow]} 条记录</em></span>
-          <span><b>到期预估</b><em>{dashboard.optionsExpiration ?? "暂无可用到期日"}</em></span>
+          <span><b>期权状态</b><em>{dashboard.optionFreshness.isCurrent ? `${dashboard.optionWindowLabel} · ${dashboard.optionWindowCounts[dashboard.optionWindow]} 条记录` : dashboard.optionFreshness.status === "HISTORICAL" ? "历史快照 · 不用于当前结论" : "当前暂无可用数据"}</em></span>
+          <span><b>到期预估</b><em>{dashboard.optionsExpiration ?? "暂不计算"}</em></span>
         </div>
-        {!dashboard.optionsDate ? <div className="chart-empty">这个代码暂时没有可用的期权数据</div> : <>
+        {!dashboard.optionsDate ? <div className="chart-empty">{dashboard.optionFreshness.status === "HISTORICAL" ? `${dashboard.optionFreshness.reason}。Gamma、墙位、最大痛点和期权估算区间已停用，等待同日快照更新。` : "这个代码暂时没有可用的期权数据"}</div> : <>
           <SectionPager label="期权持仓与波动" accent="var(--warning)" tabs={[
             { id: "options-range", label: "波动范围", content: <div className="options-visual-grid"><ExpectedRangeVisual close={dashboard.quote.close} lower={dashboard.options.expectedLower} upper={dashboard.options.expectedUpper} expectedMove={dashboard.options.expectedMove} expectedMovePct={dashboard.options.expectedMovePct} expiration={dashboard.optionsExpiration} maxPain={dashboard.options.maxPain} callWall={dashboard.options.callWall} putWall={dashboard.options.putWall} /><PutCallVisual ratio={dashboard.options.putCallOi} atmIv={dashboard.options.atmIv} /></div> },
             { id: "options-gamma", label: "Gamma偏向", content: <GammaExposureVisual {...dashboard.options.gammaExposure} /> },

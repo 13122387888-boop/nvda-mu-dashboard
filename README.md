@@ -1,6 +1,6 @@
-# US Equity EOD Research Dashboard
+# 收盘雷达 / EOD Radar
 
-A product-validation dashboard for a configuration-driven US equity and exchange-traded-product watchlist. The current 41-symbol pool covers **NVDA, MU, SNDK, MSFT, TSLA, DRAM, SKHY, TSM, AAPL, AVGO, ORCL, SOXX, QQQ, IBIT, GLD, XLF, XLE, XLU, XLV, MVRL, SPCX, CRCL, INTC, GOOG, AMD, IGV, UVIX, META, AMZN, ASML, WDC, STX, PLTR, XBI, BRK.B, LLY, GLW, COHR, AAOI, LITE, and BE**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
+An invitation-beta dashboard for a configuration-driven US equity and exchange-traded-product watchlist. The current 41-symbol pool covers **NVDA, MU, SNDK, MSFT, TSLA, DRAM, SKHY, TSM, AAPL, AVGO, ORCL, SOXX, QQQ, IBIT, GLD, XLF, XLE, XLU, XLV, MVRL, SPCX, CRCL, INTC, GOOG, AMD, IGV, UVIX, META, AMZN, ASML, WDC, STX, PLTR, XBI, BRK.B, LLY, GLW, COHR, AAOI, LITE, and BE**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
 
 This is research software, not a real-time feed or investment-advice product.
 
@@ -116,6 +116,8 @@ Cron runs incremental sync only. Bootstrap remains a one-time manual operation.
 - `/api/v1/stocks/<SYMBOL>/dashboard` — reusable dashboard payload
 - `/api/health` — database connectivity and latest sync time
 - `/debug` — diagnostics only when `ENABLE_DEBUG_PAGE=true`
+- `/methodology` — data sources, indicator scope, freshness, and known limitations
+- `/privacy` and `/terms` — invitation-beta privacy and usage notices
 
 Symbols outside `src/lib/stocks.ts` return 404. The public APIs do not expose raw full chains, provider proxying, database queries, CSV, or bulk exports.
 
@@ -152,7 +154,7 @@ No push or public repository is created automatically. If a remote already exist
 ## 7. Vercel deployment
 
 1. Import the private GitHub repository into Vercel.
-2. Add `DATABASE_URL`, `DIRECT_URL`, `ONCLICKMEDIA_API_KEY` (optional), `CRON_SECRET`, `ENABLE_DEBUG_PAGE=false`, and `NEXT_PUBLIC_SITE_URL`.
+2. Add `DATABASE_URL`, `DIRECT_URL`, `ONCLICKMEDIA_API_KEY` (optional), `CRON_SECRET`, `ENABLE_DEBUG_PAGE=false`, and `NEXT_PUBLIC_SITE_URL`. Set `NEXT_PUBLIC_SITE_URL` to the canonical HTTPS origin used in links and metadata; changing the custom domain later should only require updating this value and redeploying.
 3. From a trusted local/CI environment with `DIRECT_URL`, apply the committed schema:
 
    ```bash
@@ -163,7 +165,7 @@ No push or public repository is created automatically. If a remote already exist
 5. Before launch, run `npm run sync:bootstrap` once against the production Supabase project.
 6. Verify `/api/health`, at least two configured stock pages, and one authorized Cron call.
 
-Vercel's default domain is sufficient. A custom domain is optional later. The deployed app depends only on Vercel, Supabase, and OnclickMedia for runtime updates; optional Longbridge backfills are already persisted in Supabase, so the local computer can be off.
+Vercel's default domain can be used during invitation testing. Before a wider release, bind a neutral custom domain, update `NEXT_PUBLIC_SITE_URL`, redeploy, and verify the site without a proxy on the target networks. The deployed app depends only on Vercel, Supabase, and OnclickMedia for runtime updates; optional Longbridge backfills are already persisted in Supabase, so the local computer can be off.
 
 ## Troubleshooting
 

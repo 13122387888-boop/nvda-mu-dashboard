@@ -37,6 +37,10 @@ type ScanCard = {
   ivPercentile: { percentile: number | null; sampleSize: number; label: string };
   marketStatus: string;
   gammaRegime: "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
+  optionFreshness?: {
+    status: "CURRENT" | "HISTORICAL" | "UNAVAILABLE";
+    snapshotDate: string | null;
+  };
   attention: { label: string; detail: string; score: number; tone: "positive" | "negative" | "warning" | "neutral" };
   dayOverDay: DayOverDayChange | null;
   dataDate: string | null;
@@ -65,6 +69,11 @@ const gammaLabels = { POSITIVE: "正 Gamma", NEGATIVE: "负 Gamma", NEUTRAL: "Ga
 const gammaShortLabels = { POSITIVE: "正 G", NEGATIVE: "负 G", NEUTRAL: "中性 G", UNAVAILABLE: "G 暂无" } as const;
 const gammaTone = { POSITIVE: "stable", NEGATIVE: "amplify", NEUTRAL: "neutral", UNAVAILABLE: "unavailable" } as const;
 const maStructureLabels = { BULLISH: "多头排列", BULLISH_PULLBACK: "强势回踩", BEARISH: "空头排列", MIXED: "均线混合", UNAVAILABLE: "均线暂无" } as const;
+
+function gammaPresentation(card: ScanCard, compact = false) {
+  if (card.optionFreshness?.status === "HISTORICAL") return compact ? "历史期权" : "历史快照";
+  return compact ? gammaShortLabels[card.gammaRegime] : gammaLabels[card.gammaRegime];
+}
 
 function trendPresentation(score: number | null) {
   if (score === null) return { label: "数据不足", tone: "insufficient_data" };
@@ -337,7 +346,7 @@ function StructureDistribution({ cards }: { cards: ScanCard[] }) {
   const renderReadout = () => (
     <div className={`distribution-readout${selected ? " active" : ""}`} aria-live="polite">
       {selected ? <>
-        <div><b>{selected.symbol}</b><span>趋势 {selected.trendScore ?? "—"}</span>{mode === "OPTION" ? <span>{selected.ivPercentile.label}</span> : <><span>{maStructureLabels[selected.maStructure]}</span><span>{rsiPresentation(selected.rsi14).label}</span><span>{bollingerPosition(selected)}</span></>}<span>量能 {selected.relativeVolume?.toFixed(1) ?? "—"}×</span>{mode === "OPTION" && <span>{gammaLabels[selected.gammaRegime]}</span>}</div>
+        <div><b>{selected.symbol}</b><span>趋势 {selected.trendScore ?? "—"}</span>{mode === "OPTION" ? <span>{selected.ivPercentile.label}</span> : <><span>{maStructureLabels[selected.maStructure]}</span><span>{rsiPresentation(selected.rsi14).label}</span><span>{bollingerPosition(selected)}</span></>}<span>量能 {selected.relativeVolume?.toFixed(1) ?? "—"}×</span>{mode === "OPTION" && <span>{gammaPresentation(selected)}</span>}</div>
         <Link href={`/stocks/${selected.symbol}`}>查看详情 →</Link>
       </> : <span>点击气泡查看完整读数；再次点击同一气泡进入详情。</span>}
     </div>
@@ -479,9 +488,9 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
                   <b><i className={`status-dot ${trend.tone}`} />{trend.label}</b>
                   <span className="scanner-confidence" title={stock.trendConfidence.reason}>{confidencePresentation(stock.trendConfidence)}</span>
                   {showVolume && <em>量能 {stock.relativeVolume!.toFixed(1)}×</em>}
-                  <span className={`scanner-mobile-gamma ${gammaTone[stock.gammaRegime]}`}>{gammaShortLabels[stock.gammaRegime]}</span>
+                  <span className={`scanner-mobile-gamma ${gammaTone[stock.gammaRegime]}`}>{gammaPresentation(stock, true)}</span>
                 </button>
-                <div className={`scanner-gamma ${gammaTone[stock.gammaRegime]}`}><small>期权结构</small><b>{gammaLabels[stock.gammaRegime]}</b><em>{stock.ivPercentile.label}</em></div>
+                <div className={`scanner-gamma ${gammaTone[stock.gammaRegime]}`}><small>期权结构</small><b>{gammaPresentation(stock)}</b><em>{stock.optionFreshness?.status === "HISTORICAL" ? stock.optionFreshness.snapshotDate ?? "日期暂无" : stock.ivPercentile.label}</em></div>
                 <div className="scanner-change">
                   <small>主要关注理由</small>
                   <strong className={`scanner-primary-reason ${technical.tone}`} title={`${maStructureLabels[stock.maStructure]} · ${rsiPresentation(stock.rsi14).label} · ${bollingerPosition(stock)} · ${stock.attention.detail}`}>{technical.label}</strong>

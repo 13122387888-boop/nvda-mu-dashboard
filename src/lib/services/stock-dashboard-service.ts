@@ -1,4 +1,4 @@
-import { addDays, dateToYmd } from "@/lib/dates";
+import { addDays, dateToYmd, parseYmd, todayYmd } from "@/lib/dates";
 import { assessOptionDataQuality } from "@/lib/data-quality";
 import { getPrisma } from "@/lib/db/prisma";
 import { Prisma, type StockMetrics } from "@/generated/prisma/client";
@@ -23,6 +23,101 @@ import { STOCKS, SUPPORTED_SYMBOLS } from "@/lib/stocks";
 export { isSupportedSymbol, STOCKS, SUPPORTED_SYMBOLS } from "@/lib/stocks";
 
 export type OptionWindow = "ALL" | "7" | "30" | "50";
+
+export type OptionConclusionFreshness = {
+  status: "CURRENT" | "HISTORICAL" | "UNAVAILABLE";
+  isCurrent: boolean;
+  stockDate: string | null;
+  metricsDate: string | null;
+  snapshotDate: string | null;
+  ageBusinessDays: number | null;
+  reason: string;
+};
+
+const OPTION_CONCLUSION_MAX_BUSINESS_DAYS = 1;
+
+function businessDaysAfter(date: string, asOfDate: string) {
+  const start = parseYmd(date);
+  const end = parseYmd(asOfDate);
+  let count = 0;
+  for (const cursor = new Date(start.getTime() + 86_400_000); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
+    if (cursor.getUTCDay() !== 0 && cursor.getUTCDay() !== 6) count += 1;
+  }
+  return count;
+}
+
+export function assessOptionConclusionFreshness(input: {
+  stockDate: string | null;
+  metricsDate?: string | null;
+  snapshotDate: string | null;
+  hasSnapshot?: boolean;
+  asOfDate?: string;
+  maxBusinessDays?: number;
+}): OptionConclusionFreshness {
+  const { stockDate, snapshotDate } = input;
+  const metricsDate = input.metricsDate ?? stockDate;
+  if (!snapshotDate || input.hasSnapshot === false) {
+    return {
+      status: "UNAVAILABLE",
+      isCurrent: false,
+      stockDate,
+      metricsDate,
+      snapshotDate,
+      ageBusinessDays: null,
+      reason: "当前没有可用的期权快照",
+    };
+  }
+  if (!stockDate || !metricsDate || snapshotDate !== stockDate || snapshotDate !== metricsDate) {
+    const expectedDates = [...new Set([stockDate, metricsDate].filter((value): value is string => Boolean(value)))];
+    return {
+      status: "HISTORICAL",
+      isCurrent: false,
+      stockDate,
+      metricsDate,
+      snapshotDate,
+      ageBusinessDays: null,
+      reason: expectedDates.length
+        ? `期权快照 ${snapshotDate} 与股票/指标日期 ${expectedDates.join(" / ")} 不一致`
+        : `仅有 ${snapshotDate} 的历史期权快照，股票日期暂不可用`,
+    };
+  }
+
+  const asOfDate = input.asOfDate ?? todayYmd();
+  if (snapshotDate > asOfDate) {
+    return {
+      status: "HISTORICAL",
+      isCurrent: false,
+      stockDate,
+      metricsDate,
+      snapshotDate,
+      ageBusinessDays: null,
+      reason: `期权快照日期 ${snapshotDate} 晚于当前日期 ${asOfDate}`,
+    };
+  }
+  const ageBusinessDays = businessDaysAfter(snapshotDate, asOfDate);
+  const maxBusinessDays = input.maxBusinessDays ?? OPTION_CONCLUSION_MAX_BUSINESS_DAYS;
+  if (ageBusinessDays > maxBusinessDays) {
+    return {
+      status: "HISTORICAL",
+      isCurrent: false,
+      stockDate,
+      metricsDate,
+      snapshotDate,
+      ageBusinessDays,
+      reason: `期权快照距今已有 ${ageBusinessDays} 个工作日`,
+    };
+  }
+
+  return {
+    status: "CURRENT",
+    isCurrent: true,
+    stockDate,
+    metricsDate,
+    snapshotDate,
+    ageBusinessDays,
+    reason: "期权快照与当前股票数据对齐",
+  };
+}
 
 const OPTION_WINDOW_LIMITS: Record<OptionWindow, number | null> = {
   ALL: null,
@@ -339,14 +434,15 @@ function percentDistance(value: number | null, close: number) {
 export function stockAttention(input: {
   close: number;
   marketStatus: string;
-  optionsDate: string | null;
+  optionFreshness: OptionConclusionFreshness;
   gammaRegime: "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
   callWall: number | null;
   putWall: number | null;
   dayOverDay: Awaited<ReturnType<typeof loadDayOverDayChange>> | null;
 }): { label: string; detail: string; score: number; tone: AttentionTone } {
   const change = input.dayOverDay;
-  const gammaChanged = change
+  const optionsCurrent = input.optionFreshness.isCurrent;
+  const gammaChanged = optionsCurrent && change
     && change.gamma.previous !== "UNAVAILABLE"
     && change.gamma.current !== "UNAVAILABLE"
     && change.gamma.previous !== change.gamma.current;
@@ -371,7 +467,7 @@ export function stockAttention(input: {
     };
   }
 
-  if (change?.expectedRange.state === "ABOVE" || change?.expectedRange.state === "BELOW") {
+  if (optionsCurrent && (change?.expectedRange.state === "ABOVE" || change?.expectedRange.state === "BELOW")) {
     const above = change.expectedRange.state === "ABOVE";
     return {
       label: above ? "上破昨日预期上沿" : "下破昨日预期下沿",
@@ -386,7 +482,7 @@ export function stockAttention(input: {
   const callWallMovePct = change?.callWall.delta === null || change?.callWall.delta === undefined || input.close <= 0
     ? null
     : Math.abs(change.callWall.delta) / input.close * 100;
-  if (callWallMovePct !== null && callWallMovePct >= 2) {
+  if (optionsCurrent && callWallMovePct !== null && callWallMovePct >= 2) {
     const rising = change!.callWall.delta! > 0;
     return {
       label: rising ? "看涨墙显著上移" : "看涨墙显著下移",
@@ -406,19 +502,24 @@ export function stockAttention(input: {
     };
   }
 
-  if (input.gammaRegime === "NEGATIVE") return { label: "负 Gamma 环境", detail: "短线波动可能更容易被放大", score: 50, tone: "negative" };
+  if (optionsCurrent && input.gammaRegime === "NEGATIVE") return { label: "负 Gamma 环境", detail: "短线波动可能更容易被放大", score: 50, tone: "negative" };
 
-  const wallLevels = [
+  const wallLevels = optionsCurrent ? [
     { label: "接近看涨墙", value: input.callWall },
     { label: "接近看跌墙", value: input.putWall },
   ].map((item) => ({ ...item, distance: percentDistance(item.value, input.close) }))
     .filter((item): item is typeof item & { distance: number } => item.distance !== null)
-    .sort((a, b) => a.distance - b.distance);
+    .sort((a, b) => a.distance - b.distance) : [];
   if (wallLevels[0] && wallLevels[0].distance <= 3) {
     return { label: wallLevels[0].label, detail: `距离约 ${wallLevels[0].distance.toFixed(1)}%`, score: 40 - wallLevels[0].distance, tone: "warning" };
   }
 
-  if (!input.optionsDate) return { label: "期权数据待补充", detail: "价格趋势可用，期权结构暂不可判断", score: 30, tone: "warning" };
+  if (input.optionFreshness.status === "HISTORICAL") {
+    return { label: "期权快照非当前", detail: `${input.optionFreshness.reason}，未用于当前结论`, score: 30, tone: "warning" };
+  }
+  if (input.optionFreshness.status === "UNAVAILABLE") {
+    return { label: "期权数据待补充", detail: "价格趋势可用，期权结构暂不可判断", score: 30, tone: "warning" };
+  }
   if (input.marketStatus === "STRONG_BULLISH") return { label: "趋势强势偏多", detail: "价格与均线结构保持强势", score: 25, tone: "positive" };
   if (input.marketStatus === "BEARISH") return { label: "趋势偏空", detail: "价格处于偏弱趋势结构", score: 25, tone: "negative" };
   return { label: "结构暂无明显异常", detail: "进入详情查看完整依据", score: 20, tone: "neutral" };
@@ -435,6 +536,7 @@ function buildStockCard(input: {
   }>;
   ivHistory: number[];
   gammaRegime: "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
+  hasOptionSnapshot: boolean;
 }) {
   const { symbol, metrics } = input;
   const alignedStockHistoryRows = metrics
@@ -442,6 +544,7 @@ function buildStockCard(input: {
     : input.stockHistoryRows;
   const historyCount = alignedStockHistoryRows.length;
   if (!metrics) {
+    const optionFreshness = assessOptionConclusionFreshness({ stockDate: null, snapshotDate: null });
     return {
       symbol,
       name: STOCKS[symbol].name,
@@ -455,6 +558,7 @@ function buildStockCard(input: {
       trendConfidence: calculateTrendConfidence({ ma50: null, ma100: null, ma200: null, historyCount }),
       marketStatus: "INSUFFICIENT_DATA" as const,
       gammaRegime: "UNAVAILABLE" as const,
+      optionFreshness,
       attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
       dayOverDay: null,
       relativeVolume: null,
@@ -467,7 +571,16 @@ function buildStockCard(input: {
   }
 
   const close = Number(metrics.close);
+  const dataDate = dateToYmd(metrics.tradeDate);
+  const latestStockDate = input.stockHistoryRows[0] ? dateToYmd(input.stockHistoryRows[0].tradeDate) : dataDate;
   const optionsDate = metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null;
+  const optionFreshness = assessOptionConclusionFreshness({
+    stockDate: latestStockDate,
+    metricsDate: dataDate,
+    snapshotDate: optionsDate,
+    hasSnapshot: input.hasOptionSnapshot,
+  });
+  const currentGammaRegime = optionFreshness.isCurrent ? input.gammaRegime : "UNAVAILABLE";
   const stockHistory: StockDailyRecord[] = [...alignedStockHistoryRows].reverse().map((row) => ({
     symbol,
     tradeDate: dateToYmd(row.tradeDate),
@@ -508,12 +621,12 @@ function buildStockCard(input: {
     previousClose,
     relativeVolume: relativeVolume.relativeVolume,
   });
-  const ivRank = percentileRank(input.ivHistory, numberOrNull(metrics.atmIv), 1);
+  const ivRank = percentileRank(input.ivHistory, optionFreshness.isCurrent ? numberOrNull(metrics.atmIv) : null, 1);
   const ivPercentile = { ...ivRank, label: ivPercentileLabel(ivRank) };
   const dayOverDay = calculateDayOverDayChange({
     symbol,
     currentTradeDate: metrics.tradeDate,
-    currentOptionsTradeDate: metrics.optionsTradeDate,
+    currentOptionsTradeDate: optionFreshness.isCurrent ? metrics.optionsTradeDate : null,
     previousOptionsTradeDate: null,
     currentTrendScore: trendScore,
     currentClose: close,
@@ -524,10 +637,10 @@ function buildStockCard(input: {
   const attention = stockAttention({
     close,
     marketStatus,
-    optionsDate,
-    gammaRegime: input.gammaRegime,
-    callWall: numberOrNull(metrics.callWall),
-    putWall: numberOrNull(metrics.putWall),
+    optionFreshness,
+    gammaRegime: currentGammaRegime,
+    callWall: optionFreshness.isCurrent ? numberOrNull(metrics.callWall) : null,
+    putWall: optionFreshness.isCurrent ? numberOrNull(metrics.putWall) : null,
     dayOverDay,
   });
 
@@ -543,7 +656,8 @@ function buildStockCard(input: {
     trendBreakdown,
     trendConfidence,
     marketStatus,
-    gammaRegime: input.gammaRegime,
+    gammaRegime: currentGammaRegime,
+    optionFreshness,
     attention,
     dayOverDay,
     relativeVolume: relativeVolume.relativeVolume,
@@ -551,7 +665,7 @@ function buildStockCard(input: {
     bollinger,
     maStructure,
     ivPercentile,
-    dataDate: dateToYmd(metrics.tradeDate),
+    dataDate,
   };
 }
 
@@ -582,14 +696,16 @@ async function loadStockCards() {
     WHERE row_number <= 271
     ORDER BY symbol ASC, trade_date DESC
   `;
-  const gammaRows = await prisma.$queryRaw<Array<{ symbol: string; callGamma: number; putGamma: number }>>`
+  const gammaRows = await prisma.$queryRaw<Array<{ symbol: string; tradeDate: Date; callGamma: number; putGamma: number }>>`
     WITH latest_metrics AS (
-      SELECT DISTINCT ON (symbol) symbol, options_trade_date
+      SELECT DISTINCT ON (symbol) symbol, trade_date, options_trade_date
       FROM stock_metrics
-      WHERE symbol IN (${Prisma.join(SUPPORTED_SYMBOLS)}) AND options_trade_date IS NOT NULL
+      WHERE symbol IN (${Prisma.join(SUPPORTED_SYMBOLS)})
+        AND options_trade_date IS NOT NULL
+        AND options_trade_date = trade_date
       ORDER BY symbol, trade_date DESC
     )
-    SELECT options.symbol,
+    SELECT options.symbol, metrics.trade_date AS "tradeDate",
       SUM(CASE WHEN options.option_type = 'CALL'
         THEN options.gamma * options.open_interest * options.contract_multiplier ELSE 0 END)::float8 AS "callGamma",
       SUM(CASE WHEN options.option_type = 'PUT'
@@ -601,7 +717,22 @@ async function loadStockCards() {
       AND options.gamma > 0
       AND options.open_interest > 0
       AND options.contract_multiplier > 0
-    GROUP BY options.symbol
+    GROUP BY options.symbol, metrics.trade_date
+  `;
+  const optionSnapshotRows = await prisma.$queryRaw<Array<{ symbol: string; tradeDate: Date; recordCount: number }>>`
+    WITH latest_metrics AS (
+      SELECT DISTINCT ON (symbol) symbol, trade_date, options_trade_date
+      FROM stock_metrics
+      WHERE symbol IN (${Prisma.join(SUPPORTED_SYMBOLS)})
+      ORDER BY symbol, trade_date DESC
+    )
+    SELECT metrics.symbol, metrics.trade_date AS "tradeDate", COUNT(options.id)::int AS "recordCount"
+    FROM latest_metrics metrics
+    LEFT JOIN option_eod options ON options.symbol = metrics.symbol
+      AND options.trade_date = metrics.options_trade_date
+      AND options.expiration > options.trade_date
+    WHERE metrics.options_trade_date = metrics.trade_date
+    GROUP BY metrics.symbol, metrics.trade_date
   `;
   const metricsBySymbol = new Map<SupportedSymbol, StockMetrics>();
   for (const row of metricsRows) {
@@ -615,16 +746,19 @@ async function loadStockCards() {
     rows.push(row);
     stockRowsBySymbol.set(symbol, rows);
   }
-  const gammaRegimeBySymbol = new Map<SupportedSymbol, "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE">();
+  const gammaRegimeBySymbolDate = new Map<string, "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE">();
   for (const row of gammaRows) {
-    gammaRegimeBySymbol.set(row.symbol as SupportedSymbol, calculateGammaExposureProxy([
+    gammaRegimeBySymbolDate.set(`${row.symbol}|${dateToYmd(row.tradeDate)}`, calculateGammaExposureProxy([
       { optionType: "CALL", gamma: Number(row.callGamma), openInterest: 1, contractMultiplier: 1 },
       { optionType: "PUT", gamma: Number(row.putGamma), openInterest: 1, contractMultiplier: 1 },
     ], 1).regime);
   }
+  const symbolDatesWithCurrentOptionSnapshot = new Set(
+    optionSnapshotRows.filter((row) => row.recordCount > 0).map((row) => `${row.symbol}|${dateToYmd(row.tradeDate)}`),
+  );
   const ivHistoryBySymbol = new Map<SupportedSymbol, number[]>();
   for (const row of metricsRows) {
-    if (row.atmIv === null) continue;
+    if (row.atmIv === null || !row.optionsTradeDate || row.optionsTradeDate.getTime() !== row.tradeDate.getTime()) continue;
     const symbol = row.symbol as SupportedSymbol;
     const values = ivHistoryBySymbol.get(symbol) ?? [];
     values.unshift(Number(row.atmIv));
@@ -633,17 +767,19 @@ async function loadStockCards() {
 
   return SUPPORTED_SYMBOLS.map((symbol) => {
     const metrics = metricsBySymbol.get(symbol) ?? null;
+    const metricsKey = metrics ? `${symbol}|${dateToYmd(metrics.tradeDate)}` : null;
     return buildStockCard({
       symbol,
       metrics,
       stockHistoryRows: stockRowsBySymbol.get(symbol) ?? [],
       ivHistory: ivHistoryBySymbol.get(symbol) ?? [],
-      gammaRegime: gammaRegimeBySymbol.get(symbol) ?? "UNAVAILABLE",
+      gammaRegime: metricsKey ? gammaRegimeBySymbolDate.get(metricsKey) ?? "UNAVAILABLE" : "UNAVAILABLE",
+      hasOptionSnapshot: metricsKey ? symbolDatesWithCurrentOptionSnapshot.has(metricsKey) : false,
     });
   });
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v21"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v22"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();
@@ -656,7 +792,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
   const chartStartDate = addDays(dateToYmd(metrics.tradeDate), -190);
   const calculationStartDate = addDays(dateToYmd(metrics.tradeDate), -450);
-  const [calculationHistory, allOptionRows, optionDateGroups, volumeProfile, latestSyncRun] = await Promise.all([
+  const [calculationHistory, allOptionRows, optionDateGroups, volumeProfile, latestSyncRun, latestStockRow] = await Promise.all([
     prisma.stockDaily.findMany({
       where: { symbol, tradeDate: { gte: new Date(`${calculationStartDate}T00:00:00.000Z`), lte: metrics.tradeDate } },
       orderBy: { tradeDate: "asc" },
@@ -675,7 +811,18 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
     }),
     getCachedVolumeProfile(symbol, dateToYmd(metrics.tradeDate)),
     prisma.syncRun.findFirst({ orderBy: { startedAt: "desc" }, select: { errorMessage: true } }),
+    prisma.stockDaily.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" }, select: { tradeDate: true } }),
   ]);
+  const stockDate = dateToYmd(metrics.tradeDate);
+  const latestStockDate = latestStockRow ? dateToYmd(latestStockRow.tradeDate) : stockDate;
+  const optionsSnapshotDate = metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null;
+  const optionFreshness = assessOptionConclusionFreshness({
+    stockDate: latestStockDate,
+    metricsDate: stockDate,
+    snapshotDate: optionsSnapshotDate,
+    hasSnapshot: allOptionRows.length > 0,
+  });
+  const currentOptionRows = optionFreshness.isCurrent ? allOptionRows : [];
   const optionHistoryDates = optionDateGroups.map((row) => row.tradeDate);
   const optionHistoryRows = optionHistoryDates.length
     ? await prisma.optionEod.findMany({
@@ -731,10 +878,10 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
   const dayOverDay = await loadDayOverDayChange({
     symbol,
     currentTradeDate: metrics.tradeDate,
-    currentOptionsTradeDate: metrics.optionsTradeDate,
+    currentOptionsTradeDate: optionFreshness.isCurrent ? metrics.optionsTradeDate : null,
     currentTrendScore: trendScore,
     currentClose: close,
-    currentOptionRows: allOptionRows,
+    currentOptionRows,
     currentStockHistory: stockResearchHistory,
   });
   const trendConfidence = calculateTrendConfidence({ ma50: currentMa50, ma100: currentMa100, ma200: currentMa200, historyCount: calculationHistory.length });
@@ -743,8 +890,8 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
   const optionWindowCounts = Object.fromEntries(optionWindows.map((window) => {
     const limit = OPTION_WINDOW_LIMITS[window];
     const count = limit === null || !metrics.optionsTradeDate
-      ? allOptionRows.length
-      : allOptionRows.filter((row) => remainingDays(metrics.optionsTradeDate!, row.expiration) <= limit).length;
+      ? currentOptionRows.length
+      : currentOptionRows.filter((row) => remainingDays(metrics.optionsTradeDate!, row.expiration) <= limit).length;
     return [window, count];
   })) as Record<OptionWindow, number>;
   const priceHistory = calculationHistory.map((row, index) => {
@@ -789,10 +936,12 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
   const dashboards = optionWindows.map((optionWindow) => {
     const optionWindowLimit = OPTION_WINDOW_LIMITS[optionWindow];
     const optionRows = optionWindowLimit === null || !metrics.optionsTradeDate
-      ? allOptionRows
-      : allOptionRows.filter((row) => remainingDays(metrics.optionsTradeDate!, row.expiration) <= optionWindowLimit);
+      ? currentOptionRows
+      : currentOptionRows.filter((row) => remainingDays(metrics.optionsTradeDate!, row.expiration) <= optionWindowLimit);
     const optionRecords = optionRows.map(toOptionRecord);
-    const previousSnapshot = optionSnapshots.filter((snapshot) => snapshot.tradeDate < (metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : "")).at(-1);
+    const previousSnapshot = optionFreshness.isCurrent
+      ? optionSnapshots.filter((snapshot) => snapshot.tradeDate < (metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : "")).at(-1)
+      : undefined;
     const previousOptionRecords = (previousSnapshot?.records ?? []).filter((row) => {
       if (optionWindowLimit === null || !previousSnapshot) return true;
       return Math.ceil((new Date(`${row.expiration}T00:00:00.000Z`).getTime() - new Date(`${previousSnapshot.tradeDate}T00:00:00.000Z`).getTime()) / 86_400_000) <= optionWindowLimit;
@@ -834,10 +983,11 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
       name: STOCKS[symbol].name,
       accent: STOCKS[symbol].accent,
       assetType: STOCKS[symbol].assetType,
-      stockDate: dateToYmd(metrics.tradeDate),
+      stockDate,
       stockProviders: [...new Set(calculationHistory.map((row) => row.provider))].sort(),
-      optionsSnapshotDate: metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null,
-      optionsDate: optionRows.length && metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null,
+      optionsSnapshotDate,
+      optionsDate: optionRows.length && optionFreshness.isCurrent ? optionsSnapshotDate : null,
+      optionFreshness,
       optionsExpiration: pricingMetrics.optionsExpiration,
       optionWindow,
       optionWindowLabel: OPTION_WINDOW_LABELS[optionWindow],
@@ -895,7 +1045,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v18"],
+  ["stock-dashboard-bundle-v19"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

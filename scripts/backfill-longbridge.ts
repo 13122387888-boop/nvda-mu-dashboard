@@ -82,8 +82,8 @@ async function recalculateLatestMetrics(symbol: SupportedSymbol) {
   }));
   const stock = calculateStockMetrics(history);
   if (!stock) return;
-  const latestOption = await prisma.optionEod.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" }, select: { tradeDate: true } });
-  const optionRows = latestOption ? await prisma.optionEod.findMany({ where: { symbol, tradeDate: latestOption.tradeDate } }) : [];
+  const matchingOption = await prisma.optionEod.findFirst({ where: { symbol, tradeDate: parseYmd(stock.tradeDate) }, select: { tradeDate: true } });
+  const optionRows = matchingOption ? await prisma.optionEod.findMany({ where: { symbol, tradeDate: matchingOption.tradeDate } }) : [];
   const options = calculateOptionMetrics(optionRows.map((row): OptionContractRecord => ({
     symbol,
     tradeDate: dateToYmd(row.tradeDate),

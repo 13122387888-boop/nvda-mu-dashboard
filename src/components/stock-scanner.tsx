@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { DayOverDayChange } from "@/components/day-over-day-change";
+import { TrendScoreExplanation } from "@/components/trend-score-explanation";
 import { money, percent } from "@/lib/format";
 import { isQuietStrength, isStructuralChange, sortCards } from "@/lib/home-scanner";
 import type { TrendConfidence, TrendScoreBreakdown } from "@/lib/indicators/stock-metrics";
@@ -124,17 +125,6 @@ function technicalStatus(card: ScanCard) {
   return { label: card.attention.label, tone: card.attention.tone };
 }
 
-function signedScoreContribution(value: number) {
-  const rounded = Number(value.toFixed(1));
-  return `${rounded > 0 ? "+" : ""}${rounded}`;
-}
-
-function scoreContributionTone(value: number) {
-  if (value > 0) return "positive";
-  if (value < 0) return "negative";
-  return "neutral";
-}
-
 function TrendScoreSheet({ stock, onClose }: { stock: ScanCard | null; onClose: () => void }) {
   const titleId = useId();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
@@ -185,20 +175,14 @@ function TrendScoreSheet({ stock, onClose }: { stock: ScanCard | null; onClose: 
     <div className={`metric-note-overlay trend-score-overlay ${active ? "active" : ""}`} onClick={(event) => { if (event.target === event.currentTarget) requestClose(); }}>
       <section className="metric-note-sheet trend-score-sheet" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <div className="metric-note-handle" aria-hidden="true" />
-        <div className="metric-note-heading"><span>趋势分组成</span><button ref={closeButtonRef} type="button" onClick={requestClose}>关闭</button></div>
+        <div className="metric-note-heading"><span>趋势分 · 计算备注</span><button ref={closeButtonRef} type="button" onClick={requestClose}>关闭</button></div>
         <div className="trend-score-sheet-title">
           <div><span>{stock.symbol}</span><h2 id={titleId}>这只标的的趋势分怎么来</h2></div>
           <div className="trend-score-sheet-total"><strong>{stock.trendScore ?? "—"}</strong><small>/100</small><span>{trend.label}</span></div>
         </div>
-        {breakdown ? <>
-          <div className="trend-score-parts trend-score-sheet-parts">
-            <article className="neutral"><span>中性起点</span><strong>50</strong><small>所有标的都从 50 分开始</small></article>
-            <article className={scoreContributionTone(breakdown.pricePosition.total)}><span>现价与可用均线</span><strong>{signedScoreContribution(breakdown.pricePosition.total)}</strong><small>现价相对可用的 50、100、200 日线</small></article>
-            <article className={scoreContributionTone(breakdown.alignment.total)}><span>均线排列</span><strong>{signedScoreContribution(breakdown.alignment.total)}</strong><small>短、中、长期均线的先后顺序</small></article>
-            <article className={scoreContributionTone(breakdown.momentum.contribution)}><span>近期强弱（RSI）</span><strong>{breakdown.momentum.rsi14 === null ? "未纳入" : signedScoreContribution(breakdown.momentum.contribution)}</strong><small>{breakdown.momentum.rsi14 === null ? "RSI 数据暂时不足" : `当前 RSI ${breakdown.momentum.rsi14.toFixed(1)}`}</small></article>
-          </div>
-          <p className="trend-score-sheet-note">从 50 分开始，把三项加减分相加，最终限制在 0–100。趋势分用于比较价格结构，不是上涨概率。</p>
-        </> : <div className="trend-score-unavailable"><b>历史数据还不够</b><span>至少有两条完整均线后，才会显示趋势分组成。</span></div>}
+        {breakdown
+          ? <TrendScoreExplanation breakdown={breakdown} />
+          : <div className="trend-score-unavailable"><b>历史数据还不够</b><span>至少有两条可用均线后，才会显示趋势分组成。</span></div>}
       </section>
     </div>,
     document.body,

@@ -1,7 +1,8 @@
 import type { CSSProperties } from "react";
 import { money, number, percent } from "@/lib/format";
 import { MetricLabel } from "@/components/metric-help";
-import { calculateTrendScoreBreakdown } from "@/lib/indicators/stock-metrics";
+import { TrendScoreExplanation } from "@/components/trend-score-explanation";
+import type { TrendScoreBreakdown } from "@/lib/indicators/stock-metrics";
 import type { BollingerBandsSummary } from "@/lib/indicators/bollinger-bands";
 
 type NullableNumber = number | null;
@@ -13,9 +14,6 @@ function compactMoney(value: number) {
   const formatter = new Intl.NumberFormat("zh-CN", { notation: "compact", maximumFractionDigits: 1 });
   return `${value < 0 ? "-" : ""}$${formatter.format(Math.abs(value))}`;
 }
-
-const signedContribution = (value: number) => `${value >= 0 ? "+" : ""}${value.toFixed(1)}`;
-const contributionTone = (value: number) => value > 0.05 ? "positive" : value < -0.05 ? "negative" : "neutral";
 
 export function GammaExposureVisual({
   callGamma,
@@ -60,16 +58,14 @@ export function TrendDeviation({
   ma50,
   ma100,
   ma200,
-  rsi14,
+  breakdown,
 }: {
   close: number;
   ma50: NullableNumber;
   ma100: NullableNumber;
   ma200: NullableNumber;
-  rsi14: NullableNumber;
+  breakdown: TrendScoreBreakdown | null;
 }) {
-  const breakdown = calculateTrendScoreBreakdown({ close, ma50, ma100, ma200, rsi14 });
-  const optionalContribution = (source: NullableNumber, contribution: number) => source === null ? "暂无" : signedContribution(contribution);
   const levels = [
     { label: "现价", value: close, className: "spot" },
     { label: "50日线", value: ma50, className: "ma50" },
@@ -116,16 +112,10 @@ export function TrendDeviation({
       {breakdown ? (
         <details className="trend-score-breakdown">
           <summary>
-            <div><span>趋势分怎么算</span><small>点击查看加分和减分</small></div>
+            <div><span>趋势分组成与计算口径</span><small>点击查看四项贡献和详细规则</small></div>
             <strong>{breakdown.score}<small>/100</small></strong>
           </summary>
-          <div className="trend-score-parts">
-            <article className="neutral"><span>基础分</span><strong>50.0</strong><small>中性起点</small></article>
-            <article className={contributionTone(breakdown.pricePosition.total)}><span>现价与均线</span><strong>{signedContribution(breakdown.pricePosition.total)}</strong><small>50日 {optionalContribution(ma50, breakdown.pricePosition.ma50)} · 100日 {optionalContribution(ma100, breakdown.pricePosition.ma100)} · 200日 {optionalContribution(ma200, breakdown.pricePosition.ma200)}</small></article>
-            <article className={contributionTone(breakdown.alignment.total)}><span>均线顺序</span><strong>{signedContribution(breakdown.alignment.total)}</strong><small>50/100日 {ma50 === null || ma100 === null ? "暂无" : signedContribution(breakdown.alignment.ma50VsMa100)} · 100/200日 {ma100 === null || ma200 === null ? "暂无" : signedContribution(breakdown.alignment.ma100VsMa200)}</small></article>
-            <article className={contributionTone(breakdown.momentum.contribution)}><span>近期强弱（RSI）</span><strong>{rsi14 === null ? "未参与" : signedContribution(breakdown.momentum.contribution)}</strong><small>RSI {rsi14 === null ? "暂无" : number(breakdown.momentum.rsi14, 1)}</small></article>
-          </div>
-          <footer>从中性 50 分开始，根据现价和均线、均线顺序及 RSI 加减分，最后限制在 0–100。趋势分不是上涨概率。</footer>
+          <TrendScoreExplanation breakdown={breakdown} />
         </details>
       ) : <div className="trend-score-unavailable"><b>历史数据还不够</b><span>至少有两条完整均线后，才会显示趋势分。</span></div>}
     </div>

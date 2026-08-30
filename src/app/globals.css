@@ -1605,6 +1605,49 @@ body { overflow-x: hidden; }
 .price-chart,
 .price-point-readout { min-width: 0; max-width: 100%; }
 
+/* One compact disclosure for the trend score on both the home sheet and the
+   detail page. The stock list itself stays unchanged. */
+.trend-score-explanation { min-width: 0; }
+.trend-score-equation {
+  min-height: 48px;
+  margin-bottom: 1px;
+  padding: 9px 13px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #27313e;
+  background: #0b1017;
+}
+.trend-score-equation > span { display: inline-flex; align-items: baseline; gap: 7px; }
+.trend-score-equation small { color: #748191; font-size: .58rem; }
+.trend-score-equation b { color: #dbe2eb; font: 800 .88rem/1 var(--font-geist-mono), monospace; }
+.trend-score-equation > i { color: #566273; font-style: normal; }
+.trend-score-equation .total { margin-left: auto; }
+.trend-score-equation .total b { color: var(--green); font-size: 1.08rem; }
+.trend-score-part-value { display: flex; align-items: baseline; gap: 5px; }
+.trend-score-part-value em { color: #657181; font: 700 .57rem/1 var(--font-geist-mono), monospace; font-style: normal; }
+.trend-score-method { border: 1px solid #27313e; border-top: 0; background: #0d1219; }
+.trend-score-method-heading { padding: 11px 13px; display: flex; align-items: baseline; justify-content: space-between; gap: 14px; border-bottom: 1px solid #27313e; }
+.trend-score-method-heading span { color: #dbe2eb; font-size: .68rem; font-weight: 750; }
+.trend-score-method-heading small { color: #6e7a89; font-size: .57rem; }
+.trend-score-method dl { margin: 0; }
+.trend-score-method dl > div { padding: 10px 13px; display: grid; grid-template-columns: 112px minmax(0, 1fr); gap: 12px; border-bottom: 1px solid #202936; }
+.trend-score-method dl > div:last-child { border-bottom: 0; }
+.trend-score-method dt { color: #aeb8c5; font: 700 .6rem/1.5 var(--font-geist-mono), monospace; }
+.trend-score-method dd { margin: 0; color: #748191; font-size: .61rem; line-height: 1.65; }
+.trend-score-explanation .trend-score-sheet-note { border: 1px solid #27313e; border-top: 0; }
+.trend-score-breakdown > .trend-score-explanation { border-top: 1px solid #27313e; }
+.trend-score-breakdown[open] > summary { border-bottom: 0; }
+
+@media (max-width: 520px) {
+  .trend-score-equation { gap: 7px; padding-inline: 11px; }
+  .trend-score-equation > span { gap: 4px; }
+  .trend-score-equation small { font-size: .53rem; }
+  .trend-score-equation b { font-size: .78rem; }
+  .trend-score-method-heading { align-items: flex-start; flex-direction: column; gap: 4px; }
+  .trend-score-method dl > div { grid-template-columns: 1fr; gap: 4px; padding-inline: 11px; }
+}
+
 /* Compact RSI + BOLL technical-state view. */
 .bollinger-visual { display: flex; flex-direction: column; }
 .bollinger-track {

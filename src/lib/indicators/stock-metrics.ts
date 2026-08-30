@@ -1,5 +1,6 @@
 import type { StockDailyRecord } from "@/lib/providers/types";
 import { simpleMovingAverage } from "./moving-average";
+import { latestRelativeVolume } from "./relative-volume";
 import { realizedVolatility } from "./realized-volatility";
 import { wilderRsi } from "./rsi";
 
@@ -14,12 +15,40 @@ export type TrendConfidence = {
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
+export const TREND_SCORE_WEIGHTS = {
+  base: 50,
+  pricePosition: 25,
+  alignment: 10,
+  momentum: 10,
+  volumeConfirmation: 5,
+} as const;
+
+export const TREND_SCORE_VOLUME_THRESHOLDS = {
+  dailyMoveDeadZonePct: 0.2,
+  baselineRelativeVolume: 1,
+  maximumRelativeVolume: 2,
+} as const;
+
+export const TREND_SCORE_STATUS_THRESHOLDS = {
+  strongBullish: 75,
+  bullish: 60,
+  neutral: 40,
+} as const;
+
+const MOVING_AVERAGE_CONFIG = {
+  ma50: { scale: 0.12, weight: 5 },
+  ma100: { scale: 0.18, weight: 8 },
+  ma200: { scale: 0.25, weight: 12 },
+} as const;
+
 export type TrendScoreInput = {
   close: number;
   ma50: number | null;
   ma100: number | null;
   ma200: number | null;
   rsi14: number | null;
+  previousClose?: number | null;
+  relativeVolume?: number | null;
 };
 
 export type TrendScoreBreakdown = {
@@ -39,43 +68,110 @@ export type TrendScoreBreakdown = {
     rsi14: number | null;
     contribution: number;
   };
+  volumeConfirmation: {
+    dailyChangePct: number | null;
+    relativeVolume: number | null;
+    contribution: number;
+  };
   rawScore: number;
   score: number;
 };
 
+function calculateVolumeConfirmation(input: Pick<TrendScoreInput, "close" | "previousClose" | "relativeVolume">) {
+  const previousClose = input.previousClose;
+  const relativeVolume = input.relativeVolume;
+  const hasPreviousClose = typeof previousClose === "number" && Number.isFinite(previousClose) && previousClose > 0;
+  const normalizedRelativeVolume = typeof relativeVolume === "number" && Number.isFinite(relativeVolume) && relativeVolume >= 0
+    ? relativeVolume
+    : null;
+  const dailyChangePct = hasPreviousClose ? (input.close / previousClose - 1) * 100 : null;
+
+  if (
+    dailyChangePct === null
+    || Math.abs(dailyChangePct) < TREND_SCORE_VOLUME_THRESHOLDS.dailyMoveDeadZonePct
+    || normalizedRelativeVolume === null
+    || normalizedRelativeVolume <= TREND_SCORE_VOLUME_THRESHOLDS.baselineRelativeVolume
+  ) {
+    return { dailyChangePct, relativeVolume: normalizedRelativeVolume, contribution: 0 };
+  }
+
+  const volumeStrength = clamp(
+    (normalizedRelativeVolume - TREND_SCORE_VOLUME_THRESHOLDS.baselineRelativeVolume)
+      / (TREND_SCORE_VOLUME_THRESHOLDS.maximumRelativeVolume - TREND_SCORE_VOLUME_THRESHOLDS.baselineRelativeVolume),
+    0,
+    1,
+  );
+  return {
+    dailyChangePct,
+    relativeVolume: normalizedRelativeVolume,
+    contribution: Math.sign(dailyChangePct) * volumeStrength * TREND_SCORE_WEIGHTS.volumeConfirmation,
+  };
+}
+
 export function calculateTrendScoreBreakdown(input: TrendScoreInput): TrendScoreBreakdown | null {
   const { close, ma50, ma100, ma200, rsi14 } = input;
-  const availableAverages = [ma50, ma100, ma200].filter((value): value is number => value !== null && value > 0);
-  if (close <= 0 || availableAverages.length < 2) return null;
+  const averages = { ma50, ma100, ma200 };
+  const isValidAverage = (value: number | null): value is number => value !== null && Number.isFinite(value) && value > 0;
+  const availableAverageEntries = Object.entries(averages).filter(
+    (entry): entry is [keyof typeof averages, number] => isValidAverage(entry[1]),
+  );
+  if (!Number.isFinite(close) || close <= 0 || availableAverageEntries.length < 2) return null;
 
-  const deviationContribution = (average: number | null, scale: number, weight: number) =>
-    average === null || average <= 0 ? 0 : clamp((close / average - 1) / scale, -1, 1) * weight;
-  const compareAverages = (faster: number | null, slower: number | null) =>
-    faster === null || slower === null || faster === slower ? 0 : faster > slower ? 5 : -5;
+  const availablePositionWeight = availableAverageEntries.reduce(
+    (sum, [key]) => sum + MOVING_AVERAGE_CONFIG[key].weight,
+    0,
+  );
+  const positionNormalization = TREND_SCORE_WEIGHTS.pricePosition / availablePositionWeight;
+  const deviationContribution = (key: keyof typeof averages) => {
+    const average = averages[key];
+    if (!isValidAverage(average)) return 0;
+    const config = MOVING_AVERAGE_CONFIG[key];
+    return clamp((close / average - 1) / config.scale, -1, 1) * config.weight * positionNormalization;
+  };
   const pricePosition = {
-    ma50: deviationContribution(ma50, 0.12, 15),
-    ma100: deviationContribution(ma100, 0.18, 15),
-    ma200: deviationContribution(ma200, 0.25, 20),
+    ma50: deviationContribution("ma50"),
+    ma100: deviationContribution("ma100"),
+    ma200: deviationContribution("ma200"),
     total: 0,
   };
   pricePosition.total = pricePosition.ma50 + pricePosition.ma100 + pricePosition.ma200;
+
+  const comparablePairs = [
+    { key: "ma50VsMa100" as const, faster: ma50, slower: ma100 },
+    { key: "ma100VsMa200" as const, faster: ma100, slower: ma200 },
+  ].filter((pair) => isValidAverage(pair.faster) && isValidAverage(pair.slower));
+  const alignmentPerPair = comparablePairs.length === 0 ? 0 : TREND_SCORE_WEIGHTS.alignment / comparablePairs.length;
+  const alignmentContributions = new Map(
+    comparablePairs.map((pair) => [
+      pair.key,
+      pair.faster === pair.slower ? 0 : pair.faster! > pair.slower! ? alignmentPerPair : -alignmentPerPair,
+    ]),
+  );
   const alignment = {
-    ma50VsMa100: compareAverages(ma50, ma100),
-    ma100VsMa200: compareAverages(ma100, ma200),
+    ma50VsMa100: alignmentContributions.get("ma50VsMa100") ?? 0,
+    ma100VsMa200: alignmentContributions.get("ma100VsMa200") ?? 0,
     total: 0,
   };
   alignment.total = alignment.ma50VsMa100 + alignment.ma100VsMa200;
   const momentum = {
     rsi14,
-    contribution: rsi14 === null ? 0 : clamp((rsi14 - 50) / 20, -1, 1) * 5,
+    contribution: rsi14 === null || !Number.isFinite(rsi14)
+      ? 0
+      : clamp((rsi14 - 50) / 20, -1, 1) * TREND_SCORE_WEIGHTS.momentum,
   };
-  const rawScore = 50 + pricePosition.total + alignment.total + momentum.contribution;
+  const volumeConfirmation = calculateVolumeConfirmation(input);
+  const rawScore = TREND_SCORE_WEIGHTS.base
+    + pricePosition.total
+    + alignment.total
+    + momentum.contribution
+    + volumeConfirmation.contribution;
 
   return {
-    base: 50,
+    base: TREND_SCORE_WEIGHTS.base,
     pricePosition,
     alignment,
     momentum,
+    volumeConfirmation,
     rawScore,
     score: Math.round(clamp(rawScore, 0, 100)),
   };
@@ -101,19 +197,13 @@ export function calculateTrendConfidence(input: {
   return { level: "LOW", label: "低", reason: "有效历史不足100个交易日，趋势分仅供初步观察" };
 }
 
-export function classifyMarketStatus(input: {
-  close: number;
-  ma50: number | null;
-  ma100: number | null;
-  ma200: number | null;
-  rsi14: number | null;
-}): MarketStatusValue {
-  const { close, ma50, ma100, ma200, rsi14 } = input;
-  if ([ma50, ma100, ma200, rsi14].some((value) => value === null)) return "INSUFFICIENT_DATA";
-  if (close > ma50! && ma50! > ma100! && ma100! > ma200! && rsi14! >= 55) return "STRONG_BULLISH";
-  if (close > ma100! && ma100! > ma200!) return "BULLISH";
-  if (close < ma100! && ma100! < ma200!) return "BEARISH";
-  return "NEUTRAL";
+export function classifyMarketStatus(input: TrendScoreInput): MarketStatusValue {
+  const score = calculateTrendScore(input);
+  if (score === null) return "INSUFFICIENT_DATA";
+  if (score >= TREND_SCORE_STATUS_THRESHOLDS.strongBullish) return "STRONG_BULLISH";
+  if (score >= TREND_SCORE_STATUS_THRESHOLDS.bullish) return "BULLISH";
+  if (score >= TREND_SCORE_STATUS_THRESHOLDS.neutral) return "NEUTRAL";
+  return "BEARISH";
 }
 
 export function calculateStockMetrics(records: StockDailyRecord[]) {
@@ -130,6 +220,8 @@ export function calculateStockMetrics(records: StockDailyRecord[]) {
   const ma200 = simpleMovingAverage(prices, 200);
   const rsi14 = wilderRsi(prices, 14);
   const dailyChange = previous === null ? null : close - previous;
+  const relativeVolume = latestRelativeVolume(ordered.map((record) => record.volume)).relativeVolume;
+  const trendInput = { close, ma50, ma100, ma200, rsi14, previousClose: previous, relativeVolume };
 
   return {
     symbol: latest.symbol,
@@ -143,7 +235,8 @@ export function calculateStockMetrics(records: StockDailyRecord[]) {
     ma200,
     rsi14,
     rv20: realizedVolatility(prices, 20),
-    trendScore: calculateTrendScore({ close, ma50, ma100, ma200, rsi14 }),
-    marketStatus: classifyMarketStatus({ close, ma50, ma100, ma200, rsi14 }),
+    relativeVolume,
+    trendScore: calculateTrendScore(trendInput),
+    marketStatus: classifyMarketStatus(trendInput),
   };
 }

@@ -11,7 +11,7 @@ import { calculateIvSkew } from "@/lib/indicators/options/iv-skew";
 import { addWallPersistence, buildOptionResearchHistory, calculateIvPercentile, calculateIvTermStructure, calculateOiChange, calculateWallProfile } from "@/lib/indicators/options/option-research";
 import { putCallOpenInterest } from "@/lib/indicators/options/put-call-ratio";
 import { movingAverageSeries } from "@/lib/indicators/moving-average";
-import { calculateStockMetrics, calculateTrendConfidence, calculateTrendScore, calculateTrendScoreBreakdown, classifyMarketStatus } from "@/lib/indicators/stock-metrics";
+import { calculateStockMetrics, calculateTrendConfidence, calculateTrendScoreBreakdown, classifyMarketStatus } from "@/lib/indicators/stock-metrics";
 import { realizedVolatility } from "@/lib/indicators/realized-volatility";
 import { latestRelativeVolume, relativeVolumeSeries } from "@/lib/indicators/relative-volume";
 import { calculateVolumeProfile, type VolumeProfile } from "@/lib/indicators/volume-profile";
@@ -200,7 +200,9 @@ function calculateDayOverDayChange(input: {
   previousOptionRows: OptionDatabaseRow[];
   currentStockHistory: StockDailyRecord[];
 }) {
-  const history = input.currentStockHistory.slice(-210);
+  // Keep the same historical window as the current score so Wilder RSI does not
+  // appear to jump merely because the previous-day calculation started later.
+  const history = input.currentStockHistory;
   const previousStock = history.length > 1 ? calculateStockMetrics(history.slice(0, -1)) : null;
   const relativeVolume = latestRelativeVolume(history.map((row) => row.volume));
   const currentOptions = input.currentOptionRows.map(toOptionRecord);
@@ -483,11 +485,29 @@ function buildStockCard(input: {
   const ma200 = movingAverageSeries(closes, 200).at(-1) ?? null;
   const rsi14 = wilderRsi(closes, 14);
   const bollinger = summarizeBollingerBands(bollingerBandsSeries(closes, 20, 2));
+  const relativeVolume = latestRelativeVolume(stockHistory.map((row) => row.volume));
+  const previousClose = closes.at(-2) ?? null;
   const maStructure = classifyMaStructure({ close, ma50, ma100, ma200 });
-  const trendBreakdown = calculateTrendScoreBreakdown({ close, ma50, ma100, ma200, rsi14 });
+  const trendBreakdown = calculateTrendScoreBreakdown({
+    close,
+    ma50,
+    ma100,
+    ma200,
+    rsi14,
+    previousClose,
+    relativeVolume: relativeVolume.relativeVolume,
+  });
   const trendScore = trendBreakdown?.score ?? null;
   const trendConfidence = calculateTrendConfidence({ ma50, ma100, ma200, historyCount });
-  const marketStatus = classifyMarketStatus({ close, ma50, ma100, ma200, rsi14 });
+  const marketStatus = classifyMarketStatus({
+    close,
+    ma50,
+    ma100,
+    ma200,
+    rsi14,
+    previousClose,
+    relativeVolume: relativeVolume.relativeVolume,
+  });
   const ivRank = percentileRank(input.ivHistory, numberOrNull(metrics.atmIv), 1);
   const ivPercentile = { ...ivRank, label: ivPercentileLabel(ivRank) };
   const dayOverDay = calculateDayOverDayChange({
@@ -526,7 +546,7 @@ function buildStockCard(input: {
     gammaRegime: input.gammaRegime,
     attention,
     dayOverDay,
-    relativeVolume: dayOverDay.relativeVolume.relativeVolume,
+    relativeVolume: relativeVolume.relativeVolume,
     rsi14,
     bollinger,
     maStructure,
@@ -623,7 +643,7 @@ async function loadStockCards() {
   });
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v19"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v20"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();
@@ -688,8 +708,26 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
   const currentMa100 = ma100.at(-1) ?? null;
   const currentMa200 = ma200.at(-1) ?? null;
   const currentBollinger = summarizeBollingerBands(bollingerSeries);
-  const trendScore = calculateTrendScore({ close, ma50: currentMa50, ma100: currentMa100, ma200: currentMa200, rsi14: currentRsi14 });
-  const marketStatus = classifyMarketStatus({ close, ma50: currentMa50, ma100: currentMa100, ma200: currentMa200, rsi14: currentRsi14 });
+  const currentRelativeVolume = volumeSeries.at(-1)?.relativeVolume ?? null;
+  const trendBreakdown = calculateTrendScoreBreakdown({
+    close,
+    ma50: currentMa50,
+    ma100: currentMa100,
+    ma200: currentMa200,
+    rsi14: currentRsi14,
+    previousClose: closes.at(-2) ?? null,
+    relativeVolume: currentRelativeVolume,
+  });
+  const trendScore = trendBreakdown?.score ?? null;
+  const marketStatus = classifyMarketStatus({
+    close,
+    ma50: currentMa50,
+    ma100: currentMa100,
+    ma200: currentMa200,
+    rsi14: currentRsi14,
+    previousClose: closes.at(-2) ?? null,
+    relativeVolume: currentRelativeVolume,
+  });
   const dayOverDay = await loadDayOverDayChange({
     symbol,
     currentTradeDate: metrics.tradeDate,
@@ -817,9 +855,10 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
         rsi14: currentRsi14,
         bollinger: currentBollinger,
         rv20: currentRv20,
-        relativeVolume: volumeSeries.at(-1)?.relativeVolume ?? null,
+        relativeVolume: currentRelativeVolume,
         averageVolume20: volumeSeries.at(-1)?.averageVolume ?? null,
         score: trendScore,
+        breakdown: trendBreakdown,
         confidence: trendConfidence,
         historyCount: calculationHistory.length,
       },
@@ -856,7 +895,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v17"],
+  ["stock-dashboard-bundle-v18"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

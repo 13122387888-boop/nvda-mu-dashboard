@@ -3,8 +3,9 @@ name: Production health smoke
 on:
   workflow_dispatch:
   schedule:
-    # The data sync starts at 05:30 UTC; allow it up to 45 minutes to finish.
-    - cron: "15 6 * * 2-6"
+    # Hobby Cron can start anywhere within a one-hour window after 05:30 UTC.
+    # Check 45 minutes after that window closes so a delayed sync can finish.
+    - cron: "15 7 * * 2-6"
 
 permissions:
   contents: read
@@ -70,6 +71,15 @@ jobs:
           if (health.status !== "ok") failures.push(`status=${health.status ?? "missing"}`);
           if (!health.asOf) failures.push("asOf is missing");
           if (health.latestRun?.status !== "SUCCESS") failures.push(`latestRun=${health.latestRun?.status ?? "missing"}`);
+          if (health.latestRun?.triggerType !== "CRON") failures.push(`latestRun.triggerType=${health.latestRun?.triggerType ?? "missing"}`);
+          const completedAt = Date.parse(health.latestRun?.completedAt ?? "");
+          const maxSyncAgeHours = process.env.GITHUB_EVENT_NAME === "schedule" ? 6 : 24;
+          const syncAgeMs = Date.now() - completedAt;
+          if (!Number.isFinite(completedAt)) {
+            failures.push("latestRun.completedAt is missing or invalid");
+          } else if (syncAgeMs < -5 * 60 * 1000 || syncAgeMs > maxSyncAgeHours * 60 * 60 * 1000) {
+            failures.push(`latestRun.completedAt is outside the ${maxSyncAgeHours}-hour acceptance window`);
+          }
           if (health.currentStockSymbols !== health.expectedSymbols) {
             failures.push(`stocks=${health.currentStockSymbols ?? "?"}/${health.expectedSymbols ?? "?"}`);
           }
@@ -87,7 +97,8 @@ jobs:
             "## Production health smoke",
             `- Status: ${failures.length ? "FAILED" : "OK"}`,
             `- Data date: ${health.asOf ?? "missing"}`,
-            `- Latest sync: ${health.latestRun?.status ?? "missing"}`,
+            `- Latest sync: ${health.latestRun?.status ?? "missing"} (${health.latestRun?.triggerType ?? "missing"})`,
+            `- Sync completed: ${health.latestRun?.completedAt ?? "missing"}`,
             `- Stocks: ${health.currentStockSymbols ?? "?"}/${health.expectedSymbols ?? "?"}`,
             `- Options: ${health.alignedOptionSymbols ?? "?"}/${health.expectedOptionSymbols ?? "?"}`,
           ].join("\n");

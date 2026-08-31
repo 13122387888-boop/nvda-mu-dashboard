@@ -37,6 +37,6 @@ describe("getSiteOrigin", () => {
     vi.stubEnv("VERCEL_PROJECT_PRODUCTION_URL", "");
     vi.stubEnv("VERCEL_URL", "");
 
-    expect(getSiteOrigin()).toBe("https://eod-radar.vercel.app");
+    expect(getSiteOrigin()).toBe("https://eodradar.com");
   });
 });

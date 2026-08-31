@@ -1,4 +1,4 @@
-const CANONICAL_PRODUCTION_ORIGIN = "https://eod-radar.vercel.app";
+const CANONICAL_PRODUCTION_ORIGIN = "https://eodradar.com";
 
 function normalizeOrigin(value: string) {
   const withProtocol = /^https?:\/\//i.test(value) ? value : `https://${value}`;

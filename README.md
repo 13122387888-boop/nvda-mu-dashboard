@@ -7,12 +7,12 @@ This is research software, not a real-time feed or investment-advice product.
 ## Architecture
 
 ```text
-OnclickMedia daily sync ────────────────→ Supabase PostgreSQL → Indicators
-Longbridge verified history backfill ──→                     ↓
+OnclickMedia option sync ───────────────→ Supabase PostgreSQL → Indicators
+Longbridge morning stock-close sync ───→                     ↓
                                                        ↓
                                Next.js UI ← Dashboard service → /api/v1
-                                                       ↑
-                                              Vercel Cron (weekdays)
+                                      ↑                         ↑
+                           GitHub Actions                 Vercel Cron
 ```
 
 - Next.js 16 App Router, TypeScript, Tailwind CSS
@@ -36,7 +36,7 @@ The adapter uses the current official public endpoints documented at [OnclickMed
 
 The provider is called only through `MarketDataProvider`. The adapter converts `call`/`put` to `CALL`/`PUT`, validates every number and market date, keeps nullable quote/Greek fields, stores the provider `contract_id`, and normalizes percentage-form IV (for example `45`) to decimal IV (`0.45`). Current API responses already use decimal IV in the nested `greeks` object.
 
-The public/free API needs no key. Its documented option-chain response is limited to the closest-to-the-money strikes per expiration and shorter history; a level-2 key is needed for the full database. Any coverage warning is recorded on the sync run. OnclickMedia remains the automated daily options source. When adjusted-history coverage has gaps, `npm run backfill:longbridge` adds missing daily bars and refreshes the most recent eight sessions from the locally authenticated Longbridge CLI so an earlier intraday snapshot cannot remain stored as the final close. Stored rows retain their source label. OnclickMedia v2 daily bars are interval-end stamped at midnight on the following calendar date; the adapter maps that label back to the US market trade date and tests this behavior.
+The public/free API needs no key. Its documented option-chain response is limited to the closest-to-the-money strikes per expiration and shorter history; a level-2 key is needed for the full database. Any coverage warning is recorded on the sync run. OnclickMedia remains the automated daily options source. Longbridge supplies the faster stock-close path: `npm run backfill:longbridge` adds missing daily bars, refreshes the most recent eight sessions, recalculates stock metrics, and rejects a run unless every selected symbol shares one latest date with aligned stored metrics. Stored rows retain their source label. OnclickMedia v2 daily bars are interval-end stamped at midnight on the following calendar date; the adapter maps that label back to the US market trade date and tests this behavior.
 
 ## 1. Create a Supabase project
 
@@ -98,15 +98,22 @@ npm run backfill:longbridge -- all 2026-01-01 2026-12-31
 npm run sync:data
 ```
 
-The backfill inserts missing dates, refreshes the most recent eight sessions, and recalculates the latest metrics. `SKHY` began US trading in July 2026, so its long-term averages and trend score remain unavailable until enough genuine sessions accumulate. The backfill is not part of the Vercel runtime or Cron job.
+The backfill inserts missing dates, refreshes the most recent eight sessions, recalculates the latest metrics, retries transient CLI failures, and verifies that all selected symbols and metrics share one latest trade date. `SKHY` began US trading in July 2026, so its long-term averages and trend score remain unavailable until enough genuine sessions accumulate.
 
-Vercel Cron calls `GET /api/cron/sync` at `05:30 UTC` from Tuesday through Saturday, after the preceding US trading day's extended-hours session and calendar rollover. It requires:
+GitHub Actions runs `.github/workflows/morning-stock-sync.yml` at **07:30 and 08:30 Asia/Shanghai, Tuesday through Saturday**. The second idempotent attempt protects the 09:00 freshness target from a delayed first publication or runner start. Configure these repository secrets:
+
+- `DATABASE_URL` — the Supabase Transaction Pooler URL.
+- `LONGBRIDGE_APP_KEY`, `LONGBRIDGE_APP_SECRET`, `LONGBRIDGE_ACCESS_TOKEN` — a quote-only Longbridge OpenAPI application.
+
+The workflow pins and checksum-verifies the official Longbridge CLI binary, refreshes recent stock bars, recalculates stock-only indicators, and validates the uncached production health endpoint. Options are intentionally not required for the morning stock-close check because their free EOD archive can publish later.
+
+Vercel Cron separately calls `GET /api/cron/sync` at `05:30 UTC` from Tuesday through Saturday to fill the OnclickMedia option snapshot when it becomes available. It requires:
 
 ```http
 Authorization: Bearer <CRON_SECRET>
 ```
 
-Cron runs incremental sync only. Bootstrap remains a one-time manual operation.
+Cron runs incremental sync only. Bootstrap remains a one-time manual operation. Stock and option dates are kept independent; a newer stock close never borrows an older option chain for wall, OI, Gamma, IV, or expected-range conclusions.
 
 ## 4. APIs and pages
 
@@ -165,7 +172,7 @@ No push or public repository is created automatically. If a remote already exist
 5. Before launch, run `npm run sync:bootstrap` once against the production Supabase project.
 6. Verify `/api/health`, at least two configured stock pages, and one authorized Cron call.
 
-Vercel's default domain can be used during invitation testing. Before a wider release, bind a neutral custom domain, update `NEXT_PUBLIC_SITE_URL`, redeploy, and verify the site without a proxy on the target networks. The deployed app depends only on Vercel, Supabase, and OnclickMedia for runtime updates; optional Longbridge backfills are already persisted in Supabase, so the local computer can be off.
+Vercel's default domain can be used during invitation testing. Before a wider release, bind a neutral custom domain, update `NEXT_PUBLIC_SITE_URL`, redeploy, and verify the site without a proxy on the target networks. Runtime updates use Vercel, GitHub Actions, Supabase, OnclickMedia, and the quote-only Longbridge OpenAPI application; the local computer can be off.
 
 ## Troubleshooting
 
@@ -175,6 +182,7 @@ Vercel's default domain can be used during invitation testing. Before a wider re
 - **MA200 is empty:** fewer than 200 valid adjusted closes were stored. Re-run bootstrap and inspect `/debug` locally.
 - **Option chain lacks Greeks:** those nullable fields remain `NULL`; contracts are not discarded.
 - **Cron returns 401:** Vercel's Authorization bearer value does not match `CRON_SECRET`.
+- **Morning stock workflow fails before sync:** confirm all four GitHub repository secrets exist and the Longbridge OpenAPI credentials are quote-only and active.
 - **Page shows an old date:** EOD providers can lag on weekends, holidays, or before publication. The UI displays stock date, option date, and expiration independently.
 - **Vercel build fails:** run all four validation commands locally; do not place database calls in module top-level code or build-time generation.
 

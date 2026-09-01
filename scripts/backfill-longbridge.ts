@@ -7,6 +7,7 @@ import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics"
 import { calculateStockMetrics } from "@/lib/indicators/stock-metrics";
 import type { OptionContractRecord, StockDailyRecord } from "@/lib/providers/types";
 import { isSupportedSymbol, SUPPORTED_SYMBOLS, type SupportedSymbol } from "@/lib/stocks";
+import { validateStockSyncObservations } from "@/lib/sync/stock-sync-validation";
 
 const execFileAsync = promisify(execFile);
 const { loadEnvConfig } = nextEnv;
@@ -22,16 +23,29 @@ type LongbridgeCandle = {
   volume: string;
 };
 
+const MAX_ATTEMPTS = 3;
+
 async function loadCandles(symbol: SupportedSymbol, start: string, end: string) {
-  const { stdout } = await execFileAsync("longbridge", [
-    "kline", "history", `${symbol}.US`,
-    "--start", start,
-    "--end", end,
-    "--period", "day",
-    "--adjust", "forward",
-    "--format", "json",
-  ], { maxBuffer: 16 * 1024 * 1024, windowsHide: true });
-  return JSON.parse(stdout) as LongbridgeCandle[];
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const { stdout } = await execFileAsync("longbridge", [
+        "kline", "history", `${symbol}.US`,
+        "--start", start,
+        "--end", end,
+        "--period", "day",
+        "--adjust", "forward",
+        "--format", "json",
+      ], { maxBuffer: 16 * 1024 * 1024, timeout: 30_000, windowsHide: true });
+      const candles = JSON.parse(stdout) as LongbridgeCandle[];
+      if (!candles.length) throw new Error(`No Longbridge daily bars were returned for ${symbol}`);
+      return candles;
+    } catch (error) {
+      lastError = error;
+      if (attempt < MAX_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, 750 * 2 ** (attempt - 1)));
+    }
+  }
+  throw lastError;
 }
 
 async function backfillSymbol(symbol: SupportedSymbol, start: string, end: string) {
@@ -65,6 +79,11 @@ async function backfillSymbol(symbol: SupportedSymbol, start: string, end: strin
   }
   await recalculateLatestMetrics(symbol);
   console.info(`[BACKFILL] ${symbol} fetched=${candles.length} inserted=${result.count} refreshed=${Math.min(candles.length, 8)}`);
+  return candleDate(candles.at(-1));
+}
+
+function candleDate(candle: LongbridgeCandle | undefined) {
+  return candle?.time.slice(0, 10) ?? null;
 }
 
 async function recalculateLatestMetrics(symbol: SupportedSymbol) {
@@ -138,7 +157,23 @@ async function main() {
       : null;
   if (!symbols) throw new Error(`Unsupported symbol: ${symbolArg}`);
 
-  for (const symbol of symbols) await backfillSymbol(symbol, start, end);
+  const fetchedLatestDates = new Map<SupportedSymbol, string | null>();
+  for (const symbol of symbols) fetchedLatestDates.set(symbol, await backfillSymbol(symbol, start, end));
+
+  const observations = await Promise.all(symbols.map(async (symbol) => {
+    const [stock, metrics] = await Promise.all([
+      prisma.stockDaily.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" }, select: { tradeDate: true } }),
+      prisma.stockMetrics.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" }, select: { tradeDate: true } }),
+    ]);
+    return {
+      symbol,
+      fetchedLatestDate: fetchedLatestDates.get(symbol) ?? null,
+      storedStockDate: stock ? dateToYmd(stock.tradeDate) : null,
+      storedMetricsDate: metrics ? dateToYmd(metrics.tradeDate) : null,
+    };
+  }));
+  const verified = validateStockSyncObservations(observations, symbols);
+  console.info(`[VERIFY] tradeDate=${verified.tradeDate} stocks=${verified.symbolCount}/${symbols.length} metrics=${verified.symbolCount}/${symbols.length}`);
 }
 
 main()

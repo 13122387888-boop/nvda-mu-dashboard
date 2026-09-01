@@ -1,0 +1,115 @@
+name: Morning stock close sync
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Two idempotent attempts leave time for provider publication or runner delay.
+    - cron: "30 7 * * 2-6"
+      timezone: "Asia/Shanghai"
+    - cron: "30 8 * * 2-6"
+      timezone: "Asia/Shanghai"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: morning-stock-close-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      LONGBRIDGE_APP_KEY: ${{ secrets.LONGBRIDGE_APP_KEY }}
+      LONGBRIDGE_APP_SECRET: ${{ secrets.LONGBRIDGE_APP_SECRET }}
+      LONGBRIDGE_ACCESS_TOKEN: ${{ secrets.LONGBRIDGE_ACCESS_TOKEN }}
+      LONGBRIDGE_REGION: global
+      PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL || secrets.PRODUCTION_BASE_URL }}
+      LONGBRIDGE_CLI_VERSION: v0.28.0
+      LONGBRIDGE_CLI_SHA256: 5a423a3e93322c890617fcabbafb7a26df4b4b0a6c0c76b6d771d6ceb231a1bb
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Verify required secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          missing=()
+          for name in DATABASE_URL LONGBRIDGE_APP_KEY LONGBRIDGE_APP_SECRET LONGBRIDGE_ACCESS_TOKEN; do
+            if [[ -z "${!name:-}" ]]; then missing+=("$name"); fi
+          done
+          if (( ${#missing[@]} )); then
+            echo "::error::Missing repository secrets: ${missing[*]}"
+            exit 1
+          fi
+          if [[ -z "${PRODUCTION_BASE_URL:-}" ]]; then
+            echo "::error::Configure the repository variable PRODUCTION_BASE_URL."
+            exit 1
+          fi
+
+      - name: Install pinned Longbridge CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive="$RUNNER_TEMP/longbridge.tar.gz"
+          curl --fail --silent --show-error --location \
+            "https://github.com/longbridge/longbridge-terminal/releases/download/${LONGBRIDGE_CLI_VERSION}/longbridge-terminal-linux-amd64.tar.gz" \
+            --output "$archive"
+          echo "${LONGBRIDGE_CLI_SHA256}  ${archive}" | sha256sum --check --status
+          tar --extract --gzip --file "$archive" --directory "$RUNNER_TEMP"
+          sudo install --mode 0755 "$RUNNER_TEMP/longbridge" /usr/local/bin/longbridge
+          longbridge --version
+
+      - name: Install project dependencies
+        run: npm ci
+
+      - name: Refresh recent closes and stock indicators
+        shell: bash
+        run: |
+          set -euo pipefail
+          start="$(date --utc --date='12 days ago' +%F)"
+          end="$(date --utc +%F)"
+          npm run backfill:longbridge -- all "$start" "$end"
+
+      - name: Verify production stock freshness
+        shell: bash
+        run: |
+          set -euo pipefail
+          base_url="${PRODUCTION_BASE_URL%/}"
+          health_url="${base_url}/api/health"
+          curl --fail --silent --show-error --location \
+            --retry 2 --retry-all-errors --connect-timeout 10 --max-time 30 \
+            "$health_url" --output health.json
+          node <<'NODE'
+          const fs = require("node:fs");
+          const health = JSON.parse(fs.readFileSync("health.json", "utf8"));
+          const failures = [];
+          if (health.database !== "connected") failures.push(`database=${health.database ?? "missing"}`);
+          if (!health.asOf) failures.push("asOf is missing");
+          if (health.staleBusinessDays !== 0) failures.push(`staleBusinessDays=${health.staleBusinessDays ?? "missing"}`);
+          if (health.currentStockSymbols !== health.expectedSymbols) {
+            failures.push(`stocks=${health.currentStockSymbols ?? "?"}/${health.expectedSymbols ?? "?"}`);
+          }
+          if (health.alignedMetricsSymbols !== health.expectedSymbols) {
+            failures.push(`metrics=${health.alignedMetricsSymbols ?? "?"}/${health.expectedSymbols ?? "?"}`);
+          }
+          const summary = [
+            "## Morning stock close sync",
+            `- Status: ${failures.length ? "FAILED" : "OK"}`,
+            `- Stock date: ${health.asOf ?? "missing"}`,
+            `- Stocks: ${health.currentStockSymbols ?? "?"}/${health.expectedSymbols ?? "?"}`,
+            `- Metrics: ${health.alignedMetricsSymbols ?? "?"}/${health.expectedSymbols ?? "?"}`,
+            `- Options: ${health.alignedOptionSymbols ?? "?"}/${health.expectedOptionSymbols ?? "?"} (updated separately)`,
+          ].join("\n");
+          fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${summary}\n`);
+          if (failures.length) {
+            console.error(`::error::Morning stock data is incomplete: ${failures.join(", ")}`);
+            process.exit(1);
+          }
+          NODE

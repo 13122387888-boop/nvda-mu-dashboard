@@ -42,6 +42,7 @@ export default async function SnapshotPage({ params, searchParams }: { params: P
   await connection();
   const dashboard = await getStockDashboard(symbol, requestedWindow);
   if (!dashboard) notFound();
+  const exactOptionSnapshot = dashboard.optionFreshness.isCurrent && dashboard.optionFreshness.ageBusinessDays === 0;
   const brief = buildResearchBrief({
     marketStatus: dashboard.quote.marketStatus,
     rsi14: dashboard.trend.rsi14,
@@ -53,13 +54,15 @@ export default async function SnapshotPage({ params, searchParams }: { params: P
       state: dashboard.trend.bollinger.state,
     },
     rv20: dashboard.trend.rv20,
-    atmIv: dashboard.options.atmIv,
-    gammaRegime: dashboard.options.gammaExposure.regime,
+    atmIv: exactOptionSnapshot ? dashboard.options.atmIv : null,
+    gammaRegime: exactOptionSnapshot ? dashboard.options.gammaExposure.regime : "UNAVAILABLE",
   });
   const change = dashboard.quote.dailyChangePct;
   const optionCurrent = dashboard.optionFreshness.isCurrent;
   const optionDateLabel = optionCurrent
-    ? dashboard.optionsDate
+    ? dashboard.optionFreshness.ageBusinessDays === 0
+      ? dashboard.optionsDate
+      : `${dashboard.optionsDate}（最近可用快照，较股票数据早 ${dashboard.optionFreshness.ageBusinessDays} 个工作日）`
     : dashboard.optionFreshness.status === "HISTORICAL"
       ? `${dashboard.optionsSnapshotDate}（历史快照，不用于当前结论）`
       : null;
@@ -93,7 +96,7 @@ export default async function SnapshotPage({ params, searchParams }: { params: P
         <p className="snapshot-summary">{brief.summary}</p>
         <div className="snapshot-metrics">
           <article><span>大方向</span><strong>{STATUS_LABELS[dashboard.quote.marketStatus]}</strong><p>短线强弱（RSI）{number(dashboard.trend.rsi14, 1)} · 近20日实际波动 {percent(dashboard.trend.rv20)}</p></article>
-          <article><span>期权预计波动</span><strong>{optionCurrent ? percent(dashboard.options.atmIv) : "暂不计算"}</strong><p>{optionCurrent ? `估算上下幅度 ±${percent(dashboard.options.expectedMovePct)}` : "等待与股票同日的期权快照"}</p></article>
+          <article><span>期权预计波动</span><strong>{optionCurrent ? percent(dashboard.options.atmIv) : "暂不计算"}</strong><p>{optionCurrent ? `按 ${dashboard.optionsDate} 快照估算，上下幅度 ±${percent(dashboard.options.expectedMovePct)}` : "等待可用的最近期权快照"}</p></article>
           <article><span>关键价位</span><strong>{optionCurrent ? `${money(dashboard.options.putWall)} – ${money(dashboard.options.callWall)}` : "暂不计算"}</strong><p>{optionCurrent ? "看跌墙 – 看涨墙" : "历史墙位未作为当前关键位"}</p></article>
           <article><span>Gamma 偏向</span><strong>{optionCurrent ? gammaLabels[dashboard.options.gammaExposure.regime] : "暂不计算"}</strong><p>{optionCurrent ? `最近到期最大痛点 ${money(dashboard.options.maxPain)}` : "历史 Gamma 与最大痛点已停用"}</p></article>
         </div>

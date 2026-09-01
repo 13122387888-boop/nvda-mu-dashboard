@@ -157,6 +157,8 @@ export async function loadDataHealthSummary(): Promise<DataHealthSummary> {
       optionsDate,
       stockCurrent: stockDate !== null && stockDate === asOf,
       metricsAligned: stockDate !== null && metricsDate === stockDate,
+      // Health alignment stays strict even though the UI can show a separately
+      // dated, one-weekday-lag research snapshot.
       optionsAligned: stockDate !== null && optionsDate === stockDate,
       optionQuality: stats ? "LIMITED" : "UNAVAILABLE",
       optionStats: stats ? {
@@ -219,7 +221,7 @@ export async function loadDataHealthSummary(): Promise<DataHealthSummary> {
   };
 }
 
-const getCachedDataHealthSummary = unstable_cache(loadDataHealthSummary, ["data-health-v2"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedDataHealthSummary = unstable_cache(loadDataHealthSummary, ["data-health-v3"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export function getDataHealthSummary() {
   return getCachedDataHealthSummary();

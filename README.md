@@ -114,7 +114,7 @@ Vercel Cron separately calls `GET /api/cron/sync` at `05:30 UTC` from Tuesday th
 Authorization: Bearer <CRON_SECRET>
 ```
 
-Cron runs incremental sync only. Bootstrap remains a one-time manual operation. Stock and option dates are kept independent; a newer stock close never borrows an older option chain for wall, OI, Gamma, IV, or expected-range conclusions.
+Cron runs incremental sync only. Bootstrap remains a one-time manual operation. Stock and option dates are kept independent. When the option archive trails the stock close, the UI may display the latest option snapshot only when it is at most one weekday behind, labels that snapshot date separately, and never uses it for current-day option changes or attention alerts. Older snapshots remain hidden from current conclusions.
 
 ## 4. APIs and pages
 

@@ -68,6 +68,7 @@ export default async function StockPage({ params, searchParams }: { params: Prom
 
   const change = dashboard.quote.dailyChangePct;
   const staleBusinessDays = businessDaysSince(dashboard.stockDate);
+  const exactOptionSnapshot = dashboard.optionFreshness.isCurrent && dashboard.optionFreshness.ageBusinessDays === 0;
   const decisionInput = {
     marketStatus: dashboard.quote.marketStatus,
     rsi14: dashboard.trend.rsi14,
@@ -79,10 +80,12 @@ export default async function StockPage({ params, searchParams }: { params: Prom
       state: dashboard.trend.bollinger.state,
     },
     rv20: dashboard.trend.rv20,
-    atmIv: dashboard.options.atmIv,
-    gammaRegime: dashboard.options.gammaExposure.regime,
+    atmIv: exactOptionSnapshot ? dashboard.options.atmIv : null,
+    gammaRegime: exactOptionSnapshot ? dashboard.options.gammaExposure.regime : "UNAVAILABLE" as const,
   };
-  const keyLevels = { callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, maxPain: dashboard.options.maxPain, expectedUpper: dashboard.options.expectedUpper, expectedLower: dashboard.options.expectedLower };
+  const keyLevels = exactOptionSnapshot
+    ? { callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, maxPain: dashboard.options.maxPain, expectedUpper: dashboard.options.expectedUpper, expectedLower: dashboard.options.expectedLower }
+    : { callWall: null, putWall: null, maxPain: null, expectedUpper: null, expectedLower: null };
   return (
     <main className="shell stock-detail">
       <Header />
@@ -99,7 +102,7 @@ export default async function StockPage({ params, searchParams }: { params: Prom
         stockDate={dashboard.stockDate}
         levels={keyLevels}
       />
-      <DayOverDayStrip change={dashboard.dayOverDay} currentStockDate={dashboard.stockDate} currentOptionsDate={dashboard.optionsDate} />
+      <DayOverDayStrip change={dashboard.dayOverDay} currentStockDate={dashboard.stockDate} currentOptionsDate={dashboard.optionFreshness.ageBusinessDays === 0 ? dashboard.optionsDate : null} />
       <ModuleJumpNav symbol={symbol} close={dashboard.quote.close} dailyChangePct={dashboard.quote.dailyChangePct} trendScore={dashboard.trend.score} confidenceLabel={dashboard.trend.confidence.label} optionWindowLabel={dashboard.optionWindowLabel} />
       <DataScope stockDate={dashboard.stockDate} optionsDate={dashboard.optionsSnapshotDate} optionFreshness={dashboard.optionFreshness} expiration={dashboard.optionsExpiration} optionWindow={dashboard.optionWindowLabel} strikeCount={dashboard.optionOpenInterest.length} stockProviders={dashboard.stockProviders} optionQuality={dashboard.dataQuality.options} />
 
@@ -108,7 +111,7 @@ export default async function StockPage({ params, searchParams }: { params: Prom
           { id: "price-chart", label: "K线图", content: <div className="chart-panel"><div className="chart-gesture-note"><span>↔ 左右拖动查看历史</span><span>下方柱子是成交量；点一下可看当天是平时的几倍</span></div><PriceChart data={dashboard.priceHistory} levels={{ maxPain: dashboard.options.maxPain, callWall: dashboard.options.wallProfiles.call, putWall: dashboard.options.wallProfiles.put, expectedUpper: dashboard.options.expectedUpper, expectedLower: dashboard.options.expectedLower }} /></div> },
           { id: "price-trend", label: "均线位置", content: <TrendDeviation close={dashboard.quote.close} ma50={dashboard.trend.ma50} ma100={dashboard.trend.ma100} ma200={dashboard.trend.ma200} breakdown={dashboard.trend.breakdown} /> },
           { id: "price-distance", label: "离关键位多远", content: <KeyDistanceMap close={dashboard.quote.close} callWall={dashboard.options.callWall} putWall={dashboard.options.putWall} maxPain={dashboard.options.maxPain} expectedUpper={dashboard.options.expectedUpper} expectedLower={dashboard.options.expectedLower} expectedMove={dashboard.options.expectedMove} /> },
-          { id: "price-scenarios", label: "到了以后看什么", content: <ScenarioObservation input={{ close: dashboard.quote.close, callWall: dashboard.options.callWall, putWall: dashboard.options.putWall, marketStatus: dashboard.quote.marketStatus, gammaRegime: dashboard.options.gammaExposure.regime }} /> },
+          { id: "price-scenarios", label: "到了以后看什么", content: <ScenarioObservation input={{ close: dashboard.quote.close, callWall: exactOptionSnapshot ? dashboard.options.callWall : null, putWall: exactOptionSnapshot ? dashboard.options.putWall : null, marketStatus: dashboard.quote.marketStatus, gammaRegime: exactOptionSnapshot ? dashboard.options.gammaExposure.regime : "UNAVAILABLE" }} /> },
         ]} />
       </section>
 
@@ -124,7 +127,7 @@ export default async function StockPage({ params, searchParams }: { params: Prom
       <section className="section-block" id="module-options"><ModuleHeading index="03" kicker="期权怎么看" title="合约集中在哪里，市场预计多大波动" description="看未结束合约集中在哪些价位，以及期权价格正在计入多大的到期前波动。" canAnswer="合约集中价位、最近到期波动范围和波动结构" cannotAnswer="谁在买卖，或者未来价格一定到哪里" accent="var(--warning)" />
         {dashboard.optionFreshness.isCurrent && <OptionWindowSelector key={dashboard.optionWindow} symbol={symbol} selected={dashboard.optionWindow} counts={dashboard.optionWindowCounts} />}
         <div className="option-scope-summary">
-          <span><b>期权状态</b><em>{dashboard.optionFreshness.isCurrent ? `${dashboard.optionWindowLabel} · ${dashboard.optionWindowCounts[dashboard.optionWindow]} 条记录` : dashboard.optionFreshness.status === "HISTORICAL" ? "历史快照 · 不用于当前结论" : "当前暂无可用数据"}</em></span>
+          <span><b>期权状态</b><em>{dashboard.optionFreshness.isCurrent ? dashboard.optionFreshness.ageBusinessDays === 0 ? `${dashboard.optionWindowLabel} · ${dashboard.optionWindowCounts[dashboard.optionWindow]} 条记录` : `最近快照 ${dashboard.optionsSnapshotDate} · ${dashboard.optionWindowCounts[dashboard.optionWindow]} 条记录` : dashboard.optionFreshness.status === "HISTORICAL" ? "历史快照 · 不用于当前结论" : "当前暂无可用数据"}</em></span>
           <span><b>到期预估</b><em>{dashboard.optionsExpiration ?? "暂不计算"}</em></span>
         </div>
         {!dashboard.optionsDate ? <div className="chart-empty">{dashboard.optionFreshness.status === "HISTORICAL" ? `${dashboard.optionFreshness.reason}。Gamma、墙位、最大痛点和期权估算区间已停用，等待同日快照更新。` : "这个代码暂时没有可用的期权数据"}</div> : <>

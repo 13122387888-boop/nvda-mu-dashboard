@@ -40,6 +40,7 @@ type ScanCard = {
   optionFreshness?: {
     status: "CURRENT" | "HISTORICAL" | "UNAVAILABLE";
     snapshotDate: string | null;
+    ageBusinessDays: number | null;
   };
   attention: { label: string; detail: string; score: number; tone: "positive" | "negative" | "warning" | "neutral" };
   dayOverDay: DayOverDayChange | null;
@@ -97,8 +98,8 @@ function matchesResearchSignal(card: ScanCard, signal: SignalFilter) {
     return (card.trendScore >= 60 && card.dailyChangePct > 0) || (card.trendScore <= 40 && card.dailyChangePct < 0);
   }
   if (signal === "BOLL_SQUEEZE") return card.bollinger.state === "SQUEEZE";
-  if (signal === "NEGATIVE_GAMMA") return card.gammaRegime === "NEGATIVE";
-  if (signal === "QUIET_STRENGTH") return isQuietStrength(card);
+  if (signal === "NEGATIVE_GAMMA") return card.gammaRegime === "NEGATIVE" && card.optionFreshness?.ageBusinessDays === 0;
+  if (signal === "QUIET_STRENGTH") return card.optionFreshness?.ageBusinessDays === 0 && isQuietStrength(card);
   return isStructuralChange(card);
 }
 
@@ -490,7 +491,7 @@ export function StockScanner({ cards }: { cards: ScanCard[] }) {
                   {showVolume && <em>量能 {stock.relativeVolume!.toFixed(1)}×</em>}
                   <span className={`scanner-mobile-gamma ${gammaTone[stock.gammaRegime]}`}>{gammaPresentation(stock, true)}</span>
                 </button>
-                <div className={`scanner-gamma ${gammaTone[stock.gammaRegime]}`}><small>期权结构</small><b>{gammaPresentation(stock)}</b><em>{stock.optionFreshness?.status === "HISTORICAL" ? stock.optionFreshness.snapshotDate ?? "日期暂无" : stock.ivPercentile.label}</em></div>
+                <div className={`scanner-gamma ${gammaTone[stock.gammaRegime]}`}><small>期权结构</small><b>{gammaPresentation(stock)}</b><em>{stock.optionFreshness?.status === "HISTORICAL" || (stock.optionFreshness?.ageBusinessDays ?? 0) > 0 ? `${stock.optionFreshness?.snapshotDate ?? "日期暂无"} 快照` : stock.ivPercentile.label}</em></div>
                 <div className="scanner-change">
                   <small>主要关注理由</small>
                   <strong className={`scanner-primary-reason ${technical.tone}`} title={`${maStructureLabels[stock.maStructure]} · ${rsiPresentation(stock.rsi14).label} · ${bollingerPosition(stock)} · ${stock.attention.detail}`}>{technical.label}</strong>

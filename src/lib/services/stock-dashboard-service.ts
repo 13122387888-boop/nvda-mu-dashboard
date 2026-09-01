@@ -1,4 +1,4 @@
-import { addDays, dateToYmd, parseYmd, todayYmd } from "@/lib/dates";
+import { addDays, dateToYmd, todayYmd } from "@/lib/dates";
 import { assessOptionDataQuality } from "@/lib/data-quality";
 import { getPrisma } from "@/lib/db/prisma";
 import { Prisma, type StockMetrics } from "@/generated/prisma/client";
@@ -6,6 +6,7 @@ import { unstable_cache } from "next/cache";
 import { bollingerBandsSeries, summarizeBollingerBands, type BollingerBandsSummary } from "@/lib/indicators/bollinger-bands";
 import { calculateGammaExposureProxy } from "@/lib/indicators/options/gamma-exposure";
 import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics";
+import { MAX_OPTION_SNAPSHOT_LAG_BUSINESS_DAYS, optionSnapshotLagBusinessDays } from "@/lib/indicators/options/option-snapshot-freshness";
 import { aggregateOptionWall } from "@/lib/indicators/options/option-walls";
 import { calculateIvSkew } from "@/lib/indicators/options/iv-skew";
 import { addWallPersistence, buildOptionResearchHistory, calculateIvPercentile, calculateIvTermStructure, calculateOiChange, calculateWallProfile } from "@/lib/indicators/options/option-research";
@@ -34,18 +35,6 @@ export type OptionConclusionFreshness = {
   reason: string;
 };
 
-const OPTION_CONCLUSION_MAX_BUSINESS_DAYS = 1;
-
-function businessDaysAfter(date: string, asOfDate: string) {
-  const start = parseYmd(date);
-  const end = parseYmd(asOfDate);
-  let count = 0;
-  for (const cursor = new Date(start.getTime() + 86_400_000); cursor <= end; cursor.setUTCDate(cursor.getUTCDate() + 1)) {
-    if (cursor.getUTCDay() !== 0 && cursor.getUTCDay() !== 6) count += 1;
-  }
-  return count;
-}
-
 export function assessOptionConclusionFreshness(input: {
   stockDate: string | null;
   metricsDate?: string | null;
@@ -67,7 +56,7 @@ export function assessOptionConclusionFreshness(input: {
       reason: "当前没有可用的期权快照",
     };
   }
-  if (!stockDate || !metricsDate || snapshotDate !== stockDate || snapshotDate !== metricsDate) {
+  if (!stockDate || !metricsDate || metricsDate !== stockDate) {
     const expectedDates = [...new Set([stockDate, metricsDate].filter((value): value is string => Boolean(value)))];
     return {
       status: "HISTORICAL",
@@ -77,7 +66,7 @@ export function assessOptionConclusionFreshness(input: {
       snapshotDate,
       ageBusinessDays: null,
       reason: expectedDates.length
-        ? `期权快照 ${snapshotDate} 与股票/指标日期 ${expectedDates.join(" / ")} 不一致`
+        ? `股票与指标日期 ${expectedDates.join(" / ")} 尚未对齐`
         : `仅有 ${snapshotDate} 的历史期权快照，股票日期暂不可用`,
     };
   }
@@ -94,9 +83,9 @@ export function assessOptionConclusionFreshness(input: {
       reason: `期权快照日期 ${snapshotDate} 晚于当前日期 ${asOfDate}`,
     };
   }
-  const ageBusinessDays = businessDaysAfter(snapshotDate, asOfDate);
-  const maxBusinessDays = input.maxBusinessDays ?? OPTION_CONCLUSION_MAX_BUSINESS_DAYS;
-  if (ageBusinessDays > maxBusinessDays) {
+  const ageBusinessDays = optionSnapshotLagBusinessDays(stockDate, snapshotDate);
+  const maxBusinessDays = input.maxBusinessDays ?? MAX_OPTION_SNAPSHOT_LAG_BUSINESS_DAYS;
+  if (ageBusinessDays === null || ageBusinessDays > maxBusinessDays) {
     return {
       status: "HISTORICAL",
       isCurrent: false,
@@ -104,7 +93,9 @@ export function assessOptionConclusionFreshness(input: {
       metricsDate,
       snapshotDate,
       ageBusinessDays,
-      reason: `期权快照距今已有 ${ageBusinessDays} 个工作日`,
+      reason: snapshotDate > stockDate
+        ? `期权快照日期 ${snapshotDate} 晚于股票日期 ${stockDate}`
+        : `期权快照比股票数据早 ${ageBusinessDays ?? "未知"} 个工作日`,
     };
   }
 
@@ -115,7 +106,9 @@ export function assessOptionConclusionFreshness(input: {
     metricsDate,
     snapshotDate,
     ageBusinessDays,
-    reason: "期权快照与当前股票数据对齐",
+    reason: ageBusinessDays === 0
+      ? "期权快照与当前股票数据对齐"
+      : `使用最近可用期权快照（较股票数据早 ${ageBusinessDays} 个工作日）`,
   };
 }
 
@@ -441,7 +434,9 @@ export function stockAttention(input: {
   dayOverDay: Awaited<ReturnType<typeof loadDayOverDayChange>> | null;
 }): { label: string; detail: string; score: number; tone: AttentionTone } {
   const change = input.dayOverDay;
-  const optionsCurrent = input.optionFreshness.isCurrent;
+  // A one-weekday-lag snapshot is useful for research charts, but it must not
+  // be promoted as a current-day alert or structural change.
+  const optionsCurrent = input.optionFreshness.isCurrent && input.optionFreshness.ageBusinessDays === 0;
   const gammaChanged = optionsCurrent && change
     && change.gamma.previous !== "UNAVAILABLE"
     && change.gamma.current !== "UNAVAILABLE"
@@ -580,6 +575,7 @@ function buildStockCard(input: {
     snapshotDate: optionsDate,
     hasSnapshot: input.hasOptionSnapshot,
   });
+  const exactOptionSnapshot = optionFreshness.isCurrent && optionFreshness.ageBusinessDays === 0;
   const currentGammaRegime = optionFreshness.isCurrent ? input.gammaRegime : "UNAVAILABLE";
   const stockHistory: StockDailyRecord[] = [...alignedStockHistoryRows].reverse().map((row) => ({
     symbol,
@@ -626,7 +622,7 @@ function buildStockCard(input: {
   const dayOverDay = calculateDayOverDayChange({
     symbol,
     currentTradeDate: metrics.tradeDate,
-    currentOptionsTradeDate: optionFreshness.isCurrent ? metrics.optionsTradeDate : null,
+    currentOptionsTradeDate: exactOptionSnapshot ? metrics.optionsTradeDate : null,
     previousOptionsTradeDate: null,
     currentTrendScore: trendScore,
     currentClose: close,
@@ -639,8 +635,8 @@ function buildStockCard(input: {
     marketStatus,
     optionFreshness,
     gammaRegime: currentGammaRegime,
-    callWall: optionFreshness.isCurrent ? numberOrNull(metrics.callWall) : null,
-    putWall: optionFreshness.isCurrent ? numberOrNull(metrics.putWall) : null,
+    callWall: exactOptionSnapshot ? numberOrNull(metrics.callWall) : null,
+    putWall: exactOptionSnapshot ? numberOrNull(metrics.putWall) : null,
     dayOverDay,
   });
 
@@ -702,7 +698,6 @@ async function loadStockCards() {
       FROM stock_metrics
       WHERE symbol IN (${Prisma.join(SUPPORTED_SYMBOLS)})
         AND options_trade_date IS NOT NULL
-        AND options_trade_date = trade_date
       ORDER BY symbol, trade_date DESC
     )
     SELECT options.symbol, metrics.trade_date AS "tradeDate",
@@ -713,7 +708,7 @@ async function loadStockCards() {
     FROM option_eod options
     JOIN latest_metrics metrics ON metrics.symbol = options.symbol
       AND metrics.options_trade_date = options.trade_date
-    WHERE options.expiration > options.trade_date
+    WHERE options.expiration > metrics.trade_date
       AND options.gamma > 0
       AND options.open_interest > 0
       AND options.contract_multiplier > 0
@@ -730,8 +725,7 @@ async function loadStockCards() {
     FROM latest_metrics metrics
     LEFT JOIN option_eod options ON options.symbol = metrics.symbol
       AND options.trade_date = metrics.options_trade_date
-      AND options.expiration > options.trade_date
-    WHERE metrics.options_trade_date = metrics.trade_date
+      AND options.expiration > metrics.trade_date
     GROUP BY metrics.symbol, metrics.trade_date
   `;
   const metricsBySymbol = new Map<SupportedSymbol, StockMetrics>();
@@ -779,7 +773,7 @@ async function loadStockCards() {
   });
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v22"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v23"], { revalidate: 300, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();
@@ -799,7 +793,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
     }),
     metrics.optionsTradeDate
       ? prisma.optionEod.findMany({
-          where: { symbol, tradeDate: metrics.optionsTradeDate, expiration: { gt: metrics.optionsTradeDate } },
+          where: { symbol, tradeDate: metrics.optionsTradeDate, expiration: { gt: metrics.tradeDate } },
           orderBy: [{ expiration: "asc" }, { strike: "asc" }],
         })
       : Promise.resolve([]),
@@ -823,6 +817,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
     hasSnapshot: allOptionRows.length > 0,
   });
   const currentOptionRows = optionFreshness.isCurrent ? allOptionRows : [];
+  const exactOptionSnapshot = optionFreshness.isCurrent && optionFreshness.ageBusinessDays === 0;
   const optionHistoryDates = optionDateGroups.map((row) => row.tradeDate);
   const optionHistoryRows = optionHistoryDates.length
     ? await prisma.optionEod.findMany({
@@ -856,6 +851,12 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
   const currentMa200 = ma200.at(-1) ?? null;
   const currentBollinger = summarizeBollingerBands(bollingerSeries);
   const currentRelativeVolume = volumeSeries.at(-1)?.relativeVolume ?? null;
+  const optionReferenceRow = optionsSnapshotDate
+    ? calculationHistory.find((row) => dateToYmd(row.tradeDate) === optionsSnapshotDate)
+    : null;
+  const optionReferenceClose = optionReferenceRow
+    ? Number(optionReferenceRow.adjustedClose ?? optionReferenceRow.close)
+    : close;
   const trendBreakdown = calculateTrendScoreBreakdown({
     close,
     ma50: currentMa50,
@@ -878,10 +879,10 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
   const dayOverDay = await loadDayOverDayChange({
     symbol,
     currentTradeDate: metrics.tradeDate,
-    currentOptionsTradeDate: optionFreshness.isCurrent ? metrics.optionsTradeDate : null,
+    currentOptionsTradeDate: exactOptionSnapshot ? metrics.optionsTradeDate : null,
     currentTrendScore: trendScore,
     currentClose: close,
-    currentOptionRows,
+    currentOptionRows: exactOptionSnapshot ? currentOptionRows : [],
     currentStockHistory: stockResearchHistory,
   });
   const trendConfidence = calculateTrendConfidence({ ma50: currentMa50, ma100: currentMa100, ma200: currentMa200, historyCount: calculationHistory.length });
@@ -946,24 +947,26 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
       if (optionWindowLimit === null || !previousSnapshot) return true;
       return Math.ceil((new Date(`${row.expiration}T00:00:00.000Z`).getTime() - new Date(`${previousSnapshot.tradeDate}T00:00:00.000Z`).getTime()) / 86_400_000) <= optionWindowLimit;
     });
-    const pricingMetrics = calculateOptionMetrics(optionRecords, close);
+    // A bounded lagged chain is calculated against its own stock close. This
+    // keeps ATM selection and premium-derived ranges from mixing two dates.
+    const pricingMetrics = calculateOptionMetrics(optionRecords, optionReferenceClose);
     const gammaExposure = calculateGammaExposureProxy(optionRows.map((row) => ({
       optionType: row.optionType,
       gamma: numberOrNull(row.gamma),
       openInterest: row.openInterest === null ? null : Number(row.openInterest),
       contractMultiplier: row.contractMultiplier,
-    })), close);
+    })), optionReferenceClose);
     const oi = new Map<number, { strike: number; callOi: number; putOi: number }>();
     for (const row of optionRows) {
       const strike = Number(row.strike);
-      if (strike < close * 0.75 || strike > close * 1.25) continue;
+      if (strike < optionReferenceClose * 0.75 || strike > optionReferenceClose * 1.25) continue;
       const point = oi.get(strike) ?? { strike, callOi: 0, putOi: 0 };
       const value = row.openInterest === null ? 0 : Number(row.openInterest);
       if (row.optionType === "CALL") point.callOi += value;
       else point.putOi += value;
       oi.set(strike, point);
     }
-    const oiChange = calculateOiChange(optionRecords, previousOptionRecords, close);
+    const oiChange = calculateOiChange(optionRecords, previousOptionRecords, optionReferenceClose);
     const optionResearchHistory = buildOptionResearchHistory(optionSnapshots.map((snapshot) => ({
       tradeDate: snapshot.tradeDate,
       records: optionWindowLimit === null
@@ -971,12 +974,12 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
         : snapshot.records.filter((row) => Math.ceil((new Date(`${row.expiration}T00:00:00.000Z`).getTime() - new Date(`${snapshot.tradeDate}T00:00:00.000Z`).getTime()) / 86_400_000) <= optionWindowLimit),
     })), stockResearchHistory);
     const wallProfiles = {
-      call: addWallPersistence(calculateWallProfile(optionRecords, "CALL", close), optionResearchHistory.points, "callWall"),
-      put: addWallPersistence(calculateWallProfile(optionRecords, "PUT", close), optionResearchHistory.points, "putWall"),
+      call: addWallPersistence(calculateWallProfile(optionRecords, "CALL", optionReferenceClose), optionResearchHistory.points, "callWall"),
+      put: addWallPersistence(calculateWallProfile(optionRecords, "PUT", optionReferenceClose), optionResearchHistory.points, "putWall"),
     };
-    const ivTermStructure = calculateIvTermStructure(optionRecords, close);
+    const ivTermStructure = calculateIvTermStructure(optionRecords, optionReferenceClose);
     const ivPercentile = calculateIvPercentile(optionResearchHistory.points, pricingMetrics.atmIv);
-    const ivSkew = calculateIvSkew(optionRecords, close);
+    const ivSkew = calculateIvSkew(optionRecords, optionReferenceClose);
 
     const dashboard = {
       symbol,
@@ -1045,7 +1048,7 @@ async function loadStockDashboardBundle(symbol: SupportedSymbol) {
 
 const getCachedStockDashboardBundle = unstable_cache(
   loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v19"],
+  ["stock-dashboard-bundle-v20"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
 

@@ -8,6 +8,7 @@ import { calculateStockMetrics } from "@/lib/indicators/stock-metrics";
 import { OnclickMediaProvider } from "@/lib/providers/onclickmedia/onclickmedia-provider";
 import type { OptionContractRecord, StockDailyRecord, SupportedSymbol } from "@/lib/providers/types";
 import { LIMITED_STOCK_SOURCE_SYMBOLS, NON_OPTION_SYMBOLS, STOCK_HISTORY_START_DATES, SUPPORTED_SYMBOLS } from "@/lib/stocks";
+import { loadRecentOptionSnapshot } from "@/lib/sync/recent-option-snapshot";
 
 const SYMBOLS: SupportedSymbol[] = SUPPORTED_SYMBOLS;
 const CREATE_BATCH_SIZE = 200;
@@ -272,13 +273,11 @@ async function syncSymbol(symbol: SupportedSymbol, mode: "bootstrap" | "incremen
     const history = await loadStockHistory(symbol);
     const stock = calculateStockMetrics(history);
     if (!stock) throw new Error("No stock history is available for metric calculation");
-    optionRecords = optionRecords.filter((row) => row.tradeDate === stock.tradeDate);
-    if (optionsExpected && !optionRecords.length) {
-      const matchingTradeDate = parseYmd(stock.tradeDate);
-      const matchingOption = await prisma.optionEod.findFirst({ where: { symbol, tradeDate: matchingTradeDate }, select: { tradeDate: true } });
-      if (matchingOption) {
-        const rows = await prisma.optionEod.findMany({ where: { symbol, tradeDate: matchingOption.tradeDate } });
-        optionRecords = rows.map((row) => ({
+    optionRecords = [];
+    if (optionsExpected) {
+      const snapshot = await loadRecentOptionSnapshot(symbol, stock.tradeDate);
+      if (snapshot.rows.length) {
+        optionRecords = snapshot.rows.map((row) => ({
           symbol,
           tradeDate: dateToYmd(row.tradeDate),
           expiration: dateToYmd(row.expiration),
@@ -298,13 +297,25 @@ async function syncSymbol(symbol: SupportedSymbol, mode: "bootstrap" | "incremen
           vega: row.vega === null ? null : Number(row.vega),
           provider: "ONCLICKMEDIA",
         }));
+        optionsDate = snapshot.tradeDate;
+        // Reusing one recent snapshot keeps research charts populated, but the
+        // sync itself remains partial until the option date catches up.
+        optionsOk = snapshot.tradeDate === stock.tradeDate;
+        if (snapshot.tradeDate !== stock.tradeDate) {
+          warnings.push(`Options: using recent ${snapshot.tradeDate} snapshot for ${stock.tradeDate} stock close`);
+        }
       }
     }
     if (optionsExpected && !optionRecords.length) {
       optionsOk = false;
-      warnings.push(`Options: no ${stock.tradeDate} snapshot is available; option conclusions were left unavailable`);
+      warnings.push(`Options: no recent snapshot is available for the ${stock.tradeDate} stock close`);
     }
-    const options = calculateOptionMetrics(optionRecords, stock.close);
+    const optionReferenceClose = optionsDate
+      ? history.find((row) => row.tradeDate === optionsDate)?.adjustedClose
+        ?? history.find((row) => row.tradeDate === optionsDate)?.close
+        ?? stock.close
+      : stock.close;
+    const options = calculateOptionMetrics(optionRecords, optionReferenceClose);
     const metricData = {
       optionsTradeDate: options.optionsTradeDate ? parseYmd(options.optionsTradeDate) : null,
       optionsExpiration: options.optionsExpiration ? parseYmd(options.optionsExpiration) : null,

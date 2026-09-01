@@ -40,6 +40,7 @@ export function DataScope({
   optionFreshness: {
     status: "CURRENT" | "HISTORICAL" | "UNAVAILABLE";
     isCurrent: boolean;
+    ageBusinessDays: number | null;
     reason: string;
   };
   expiration: string | null;
@@ -52,20 +53,23 @@ export function DataScope({
   const coverageText = upstreamCoverage
     ? `上游返回 ${upstreamCoverage.returned}/${upstreamCoverage.available} 个“到期日 × 行权价”组合（约 ${(upstreamCoverage.ratio * 100).toFixed(1)}%）`
     : "上游提供现价附近的部分行权价，并非完整期权链";
+  const recentSnapshotNote = optionFreshness.isCurrent && (optionFreshness.ageBusinessDays ?? 0) > 0
+    ? `当前使用 ${optionsDate} 的最近可用快照，较股票数据早 ${optionFreshness.ageBusinessDays} 个工作日；ATM、波动区间和 Gamma 均按快照日收盘价计算。`
+    : "";
   return (
     <section className="data-scope" aria-label="数据日期和计算方法">
       <div className="scope-tags">
         <span><b>股票数据</b>{stockDate}</span>
         <span><b>期权数据</b>{optionsDate ?? "暂无"}</span>
         <span><b>统计范围</b>{optionWindow}</span>
-        <span className={optionFreshness.isCurrent ? "scope-quality-limited" : "scope-quality-missing"}><b>期权状态</b>{optionFreshness.isCurrent ? "同日有限样本" : optionFreshness.status === "HISTORICAL" ? "历史快照" : "暂无"}</span>
+        <span className={optionFreshness.isCurrent ? "scope-quality-limited" : "scope-quality-missing"}><b>期权状态</b>{optionFreshness.isCurrent ? optionFreshness.ageBusinessDays === 0 ? "同日有限样本" : "最近有限样本" : optionFreshness.status === "HISTORICAL" ? "历史快照" : "暂无"}</span>
       </div>
       <details>
         <summary>这些数据从哪里来、怎么算</summary>
         <div className="scope-grid">
           <div><b>价格和技术指标</b><p>使用调整后的日线价格和每日成交量，计算均线、RSI、布林带、相对成交量和过去20日实际波动。数据源：{stockProviders.map((provider) => provider === "ONCLICKMEDIA" ? "OnclickMedia" : provider === "LONGBRIDGE" ? "长桥" : provider).join(" + ")}。这里不是盘中实时行情。</p></div>
-          <div><b>期权数据质量</b><p>{optionFreshness.status === "HISTORICAL" ? `${optionFreshness.reason}，因此只保留日期说明，不参与当前 Gamma、墙位、最大痛点或波动区间结论。` : optionsDate ? `${coverageText}。全部未到期样本有 ${optionQuality.stats.recordCount} 条合约、${optionQuality.stats.expirationCount} 个到期日、${optionQuality.stats.strikeCount} 个不同价位；OI / IV / Gamma 字段覆盖分别为 ${optionQuality.stats.oiCoveragePct}% / ${optionQuality.stats.ivCoveragePct}% / ${optionQuality.stats.gammaCoveragePct}%。下方图表会再按你选择的期限筛选，因此墙位等指标是“可见样本估算”，可能与富途的完整链或实时口径不同。` : "当前没有可用期权快照；若该标的没有上市期权，页面只展示股票技术数据。"}</p></div>
-          <div><b>墙位和持仓口径</b><p>{optionFreshness.isCurrent ? <>使用上方日期对应的数据；把“{optionWindow}”内相同行权价的未平仓量相加，Call 合计最多的位置叫看涨墙，Put 合计最多的位置叫看跌墙。图表显示{strikeCount ? `现价附近 ${strikeCount} 个行权价` : "暂无可用行权价"}，墙位不是确定的支撑或阻力。</> : "期权快照不是当前同日数据，本次不计算墙位和持仓结论。"}</p></div>
+          <div><b>期权数据质量</b><p>{optionFreshness.status === "HISTORICAL" ? `${optionFreshness.reason}，因此只保留日期说明，不参与当前 Gamma、墙位、最大痛点或波动区间结论。` : optionsDate ? `${recentSnapshotNote}${coverageText}。全部未到期样本有 ${optionQuality.stats.recordCount} 条合约、${optionQuality.stats.expirationCount} 个到期日、${optionQuality.stats.strikeCount} 个不同价位；OI / IV / Gamma 字段覆盖分别为 ${optionQuality.stats.oiCoveragePct}% / ${optionQuality.stats.ivCoveragePct}% / ${optionQuality.stats.gammaCoveragePct}%。下方图表会再按你选择的期限筛选，因此墙位等指标是“可见样本估算”，可能与富途的完整链或实时口径不同。` : "当前没有可用期权快照；若该标的没有上市期权，页面只展示股票技术数据。"}</p></div>
+          <div><b>墙位和持仓口径</b><p>{optionFreshness.isCurrent ? <>使用上方期权日期对应的数据；把“{optionWindow}”内相同行权价的未平仓量相加，Call 合计最多的位置叫看涨墙，Put 合计最多的位置叫看跌墙。图表显示{strikeCount ? `现价附近 ${strikeCount} 个行权价` : "暂无可用行权价"}，墙位不是确定的支撑或阻力。</> : "期权快照已超出允许时差，本次不计算墙位和持仓结论。"}</p></div>
           <div><b>区间和波动指标</b><p>{optionFreshness.isCurrent ? <>期权估算区间、期权预估波动（ATM IV）和最大痛点只使用最近到期日 {expiration ?? "暂无"}。Gamma 是按 Call 为正、Put 为负计算的结构估算，不是真实做市商持仓。</> : "期权快照不是当前同日数据，本次不计算 Gamma、最大痛点、ATM IV 和预期区间。"}</p></div>
           <div><b>没有考虑什么</b><p>页面没有纳入盘中变化、财报新闻、交易成本、个人持仓和风险承受能力，只描述最近收盘后的数据。</p></div>
         </div>

@@ -70,8 +70,10 @@ export function dayOverDayItems(change: DayOverDayChange | null) {
   ];
 }
 
-export function DayOverDayChips({ change, compact = false }: { change: DayOverDayChange | null; compact?: boolean }) {
-  const items = dayOverDayItems(change).filter((item) => !compact || !item.label.includes("暂无") && !item.label.includes("未变"));
+export function DayOverDayChips({ change, compact = false, includeOptions = true }: { change: DayOverDayChange | null; compact?: boolean; includeOptions?: boolean }) {
+  const items = dayOverDayItems(change)
+    .filter((_, index) => includeOptions || index === 0)
+    .filter((item) => !compact || !item.label.includes("暂无") && !item.label.includes("未变"));
   if (!items.length) return <span className="day-change-empty">暂无上一交易日可比数据</span>;
   return <>{items.map((item) => <span className={`day-change-chip ${item.tone}`} key={item.label}>{item.label}</span>)}</>;
 }
@@ -86,7 +88,7 @@ export function DayOverDayStrip({ change, currentStockDate, currentOptionsDate }
           {currentOptionsDate && <><i>·</i>期权 {change?.previousOptionsDate ? `${change.previousOptionsDate} → ${currentOptionsDate}` : currentOptionsDate}</>}
         </small>
       </div>
-      <div className="day-change-chips"><DayOverDayChips change={change} /></div>
+      <div className="day-change-chips"><DayOverDayChips change={change} includeOptions={Boolean(currentOptionsDate)} /></div>
     </section>
   );
 }

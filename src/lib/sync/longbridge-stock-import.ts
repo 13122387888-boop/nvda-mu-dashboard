@@ -6,6 +6,7 @@ import { calculateStockMetrics } from "@/lib/indicators/stock-metrics";
 import type { OptionContractRecord, StockDailyRecord } from "@/lib/providers/types";
 import type { SupportedSymbol } from "@/lib/stocks";
 import type { LongbridgeCandleBatch, LongbridgeCandleSeries } from "@/lib/sync/longbridge-candles";
+import { loadRecentOptionSnapshot } from "@/lib/sync/recent-option-snapshot";
 import { validateStockSyncObservations } from "@/lib/sync/stock-sync-validation";
 
 const UPSERT_BATCH_SIZE = 200;
@@ -59,9 +60,11 @@ async function recalculateLatestMetrics(symbol: SupportedSymbol) {
   const stock = calculateStockMetrics(history);
   if (!stock) throw new Error(`No stock history is available for metric calculation: ${symbol}`);
 
-  // Option conclusions are deliberately joined only on the exact stock date.
-  // A stale chain must not be displayed as if it described the new close.
-  const optionRows = await prisma.optionEod.findMany({ where: { symbol, tradeDate: parseYmd(stock.tradeDate) } });
+  // The free option archive can publish one weekday after the stock close. Use
+  // the most recent snapshot only within the explicit one-weekday tolerance;
+  // the stored optionsTradeDate keeps the two source dates visible.
+  const optionSnapshot = await loadRecentOptionSnapshot(symbol, stock.tradeDate);
+  const optionRows = optionSnapshot.rows;
   const optionRecords: OptionContractRecord[] = optionRows.map((row) => ({
     symbol,
     tradeDate: dateToYmd(row.tradeDate),
@@ -82,7 +85,11 @@ async function recalculateLatestMetrics(symbol: SupportedSymbol) {
     vega: row.vega === null ? null : Number(row.vega),
     provider: "ONCLICKMEDIA",
   }));
-  const options = calculateOptionMetrics(optionRecords, stock.close);
+  const optionReference = optionSnapshot.tradeDate
+    ? history.find((row) => row.tradeDate === optionSnapshot.tradeDate)
+    : null;
+  const optionReferenceClose = optionReference?.adjustedClose ?? optionReference?.close ?? stock.close;
+  const options = calculateOptionMetrics(optionRecords, optionReferenceClose);
   const metricData = {
     optionsTradeDate: options.optionsTradeDate ? parseYmd(options.optionsTradeDate) : null,
     optionsExpiration: options.optionsExpiration ? parseYmd(options.optionsExpiration) : null,

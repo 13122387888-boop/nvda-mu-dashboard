@@ -7,6 +7,7 @@ import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics"
 import { calculateStockMetrics } from "@/lib/indicators/stock-metrics";
 import type { OptionContractRecord, StockDailyRecord } from "@/lib/providers/types";
 import { isSupportedSymbol, SUPPORTED_SYMBOLS, type SupportedSymbol } from "@/lib/stocks";
+import { loadRecentOptionSnapshot } from "@/lib/sync/recent-option-snapshot";
 import { validateStockSyncObservations } from "@/lib/sync/stock-sync-validation";
 
 const execFileAsync = promisify(execFile);
@@ -101,8 +102,12 @@ async function recalculateLatestMetrics(symbol: SupportedSymbol) {
   }));
   const stock = calculateStockMetrics(history);
   if (!stock) return;
-  const matchingOption = await prisma.optionEod.findFirst({ where: { symbol, tradeDate: parseYmd(stock.tradeDate) }, select: { tradeDate: true } });
-  const optionRows = matchingOption ? await prisma.optionEod.findMany({ where: { symbol, tradeDate: matchingOption.tradeDate } }) : [];
+  const optionSnapshot = await loadRecentOptionSnapshot(symbol, stock.tradeDate);
+  const optionRows = optionSnapshot.rows;
+  const optionReference = optionSnapshot.tradeDate
+    ? history.find((row) => row.tradeDate === optionSnapshot.tradeDate)
+    : null;
+  const optionReferenceClose = optionReference?.adjustedClose ?? optionReference?.close ?? stock.close;
   const options = calculateOptionMetrics(optionRows.map((row): OptionContractRecord => ({
     symbol,
     tradeDate: dateToYmd(row.tradeDate),
@@ -122,7 +127,7 @@ async function recalculateLatestMetrics(symbol: SupportedSymbol) {
     theta: row.theta === null ? null : Number(row.theta),
     vega: row.vega === null ? null : Number(row.vega),
     provider: "ONCLICKMEDIA",
-  })), stock.close);
+  })), optionReferenceClose);
   await prisma.stockMetrics.upsert({
     where: { symbol_tradeDate: { symbol, tradeDate: parseYmd(stock.tradeDate) } },
     create: {

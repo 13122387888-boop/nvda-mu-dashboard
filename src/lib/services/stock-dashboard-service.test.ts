@@ -62,20 +62,20 @@ describe("ivPercentileLabel", () => {
 });
 
 describe("assessOptionConclusionFreshness", () => {
-  it("allows an aligned snapshot within the business-day tolerance", () => {
+  it("allows an aligned snapshot", () => {
     expect(assessOptionConclusionFreshness({
       stockDate: "2026-08-28",
       snapshotDate: "2026-08-28",
       asOfDate: "2026-08-31",
-    })).toMatchObject({ status: "CURRENT", isCurrent: true, ageBusinessDays: 1 });
+    })).toMatchObject({ status: "CURRENT", isCurrent: true, ageBusinessDays: 0 });
   });
 
-  it("marks a different-date snapshot as historical even when it is only one day behind", () => {
+  it("uses the latest option snapshot when it is only one weekday behind", () => {
     expect(assessOptionConclusionFreshness({
-      stockDate: "2026-08-28",
-      snapshotDate: "2026-08-27",
-      asOfDate: "2026-08-28",
-    })).toMatchObject({ status: "HISTORICAL", isCurrent: false, snapshotDate: "2026-08-27" });
+      stockDate: "2026-08-31",
+      snapshotDate: "2026-08-28",
+      asOfDate: "2026-09-01",
+    })).toMatchObject({ status: "CURRENT", isCurrent: true, snapshotDate: "2026-08-28", ageBusinessDays: 1 });
   });
 
   it("requires the snapshot to match both the latest stock row and metrics date", () => {
@@ -87,9 +87,9 @@ describe("assessOptionConclusionFreshness", () => {
     })).toMatchObject({ status: "HISTORICAL", isCurrent: false });
   });
 
-  it("marks an aligned but old snapshot as historical", () => {
+  it("marks a snapshot more than one weekday behind as historical", () => {
     expect(assessOptionConclusionFreshness({
-      stockDate: "2026-08-26",
+      stockDate: "2026-08-28",
       snapshotDate: "2026-08-26",
       asOfDate: "2026-08-28",
     })).toMatchObject({ status: "HISTORICAL", isCurrent: false, ageBusinessDays: 2 });
@@ -201,5 +201,28 @@ describe("stockAttention", () => {
       putWall: 99,
     });
     expect(result).toMatchObject({ label: "期权快照非当前", tone: "warning" });
+  });
+
+  it("shows a one-weekday-lag snapshot without promoting it as current attention", () => {
+    const result = attention({
+      ...baseChange,
+      gamma: { previous: "POSITIVE", current: "NEGATIVE" },
+      callWall: { previous: 100, current: 104, delta: 4 },
+      expectedRange: { lower: 90, upper: 99, state: "ABOVE", boundaryDistancePct: 1 },
+    }, {
+      optionFreshness: {
+        status: "CURRENT",
+        isCurrent: true,
+        stockDate: "2026-08-31",
+        metricsDate: "2026-08-31",
+        snapshotDate: "2026-08-28",
+        ageBusinessDays: 1,
+        reason: "使用最近可用期权快照",
+      },
+      gammaRegime: "NEGATIVE",
+      callWall: 101,
+      putWall: 99,
+    });
+    expect(result).toMatchObject({ score: 20, tone: "neutral" });
   });
 });

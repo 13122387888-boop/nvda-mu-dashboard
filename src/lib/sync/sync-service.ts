@@ -60,13 +60,17 @@ async function upsertStockRows(rows: StockDailyRecord[]) {
   // Providers can revise their most recent EOD bars. Refresh a small tail without
   // wrapping cross-region calls in a transaction that can expire at five seconds.
   for (const row of rows.slice(-8)) {
-    await prisma.stockDaily.upsert({
-      where: { symbol_tradeDate: { symbol: row.symbol, tradeDate: parseYmd(row.tradeDate) } },
-      create: {
-        symbol: row.symbol, tradeDate: parseYmd(row.tradeDate), open: row.open, high: row.high, low: row.low,
-        close: row.close, adjustedClose: row.adjustedClose, volume: row.volume === null ? null : BigInt(row.volume), provider: row.provider,
+    // createMany above inserted missing rows. The conditional update is atomic:
+    // an OnclickMedia option refresh can never replace a same-day Longbridge
+    // close, even if both jobs overlap. Longbridge remains allowed to revise
+    // either source when this helper is reused by a fallback importer.
+    await prisma.stockDaily.updateMany({
+      where: {
+        symbol: row.symbol,
+        tradeDate: parseYmd(row.tradeDate),
+        ...(row.provider === "LONGBRIDGE" ? {} : { provider: { not: "LONGBRIDGE" } }),
       },
-      update: {
+      data: {
         open: row.open, high: row.high, low: row.low, close: row.close, adjustedClose: row.adjustedClose,
         volume: row.volume === null ? null : BigInt(row.volume), provider: row.provider,
       },

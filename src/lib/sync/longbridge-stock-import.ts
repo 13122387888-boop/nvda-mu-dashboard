@@ -43,7 +43,7 @@ async function upsertSeries(series: LongbridgeCandleSeries) {
   return count;
 }
 
-async function recalculateLatestMetrics(symbol: SupportedSymbol) {
+export async function recalculateLatestMetrics(symbol: SupportedSymbol) {
   const prisma = getPrisma();
   const historyRows = await prisma.stockDaily.findMany({ where: { symbol }, orderBy: { tradeDate: "desc" }, take: 260 });
   const history: StockDailyRecord[] = historyRows.reverse().map((row) => ({

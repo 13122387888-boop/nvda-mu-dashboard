@@ -17,6 +17,7 @@
     "db:studio": "prisma studio",
     "sync:bootstrap": "tsx scripts/sync.ts bootstrap",
     "sync:data": "tsx scripts/sync.ts incremental",
+    "sync:options": "tsx scripts/sync-options.ts",
     "backfill:longbridge": "tsx scripts/backfill-longbridge.ts",
     "import:longbridge": "tsx scripts/import-longbridge-json.ts",
     "import:longbridge-plugin": "tsx scripts/import-longbridge-json.ts",

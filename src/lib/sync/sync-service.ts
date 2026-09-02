@@ -79,7 +79,7 @@ async function upsertStockRows(rows: StockDailyRecord[]) {
   }
 }
 
-async function replaceOptionSnapshots(rows: OptionContractRecord[]) {
+export async function replaceOptionSnapshots(rows: OptionContractRecord[]) {
   const prisma = getPrisma();
   const data = rows.map((row) => ({
     symbol: row.symbol,

@@ -773,7 +773,10 @@ async function loadStockCards() {
   });
 }
 
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v23"], { revalidate: 300, tags: ["stock-dashboard"] });
+// The homepage is often kept open while the post-close import finishes. Keep
+// this cache short so a client refresh cannot remain behind a freshly loaded
+// detail page for several minutes.
+const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v24"], { revalidate: 30, tags: ["stock-dashboard"] });
 
 export async function getStockCards() {
   return getCachedStockCards();

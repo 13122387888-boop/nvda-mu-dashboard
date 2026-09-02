@@ -1,5 +1,6 @@
 import { connection } from "next/server";
 import { Footer, Header } from "@/components/site-chrome";
+import { HomeDataRefresh } from "@/components/home-data-refresh";
 import { StockScanner } from "@/components/stock-scanner";
 import { sanitizeError } from "@/lib/env";
 import { getDataHealthSummary, type DataHealthSummary } from "@/lib/services/data-health-service";
@@ -43,6 +44,7 @@ export default async function Home() {
 
   return (
     <main className="shell">
+      <HomeDataRefresh />
       <Header />
       <section className="hero home-hero">
         <div className="home-hero-copy">

@@ -221,7 +221,7 @@ export async function loadDataHealthSummary(): Promise<DataHealthSummary> {
   };
 }
 
-const getCachedDataHealthSummary = unstable_cache(loadDataHealthSummary, ["data-health-v3"], { revalidate: 300, tags: ["stock-dashboard"] });
+const getCachedDataHealthSummary = unstable_cache(loadDataHealthSummary, ["data-health-v4"], { revalidate: 30, tags: ["stock-dashboard"] });
 
 export function getDataHealthSummary() {
   return getCachedDataHealthSummary();

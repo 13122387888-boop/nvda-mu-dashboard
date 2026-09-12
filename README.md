@@ -1,6 +1,6 @@
 # 收盘雷达 / EOD Radar
 
-An invitation-beta dashboard for a configuration-driven US equity and exchange-traded-product watchlist. The current 41-symbol pool covers **NVDA, MU, SNDK, MSFT, TSLA, DRAM, SKHY, TSM, AAPL, AVGO, ORCL, SOXX, QQQ, IBIT, GLD, XLF, XLE, XLU, XLV, MVRL, SPCX, CRCL, INTC, GOOG, AMD, IGV, UVIX, META, AMZN, ASML, WDC, STX, PLTR, XBI, BRK.B, LLY, GLW, COHR, AAOI, LITE, and BE**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
+An invitation-beta dashboard for a configuration-driven US equity and exchange-traded-product watchlist. The current 47-symbol pool covers **NVDA, MU, SNDK, MSFT, TSLA, DRAM, SKHY, TSM, AAPL, AVGO, ORCL, SOXX, QQQ, IBIT, GLD, XLF, XLE, XLU, XLV, MVRL, SPCX, CRCL, INTC, GOOG, AMD, IGV, UVIX, META, AMZN, ASML, WDC, STX, PLTR, XBI, BRK.B, LLY, GLW, COHR, AAOI, LITE, BE, MRVL, IWM, SPY, USO, XLI, and BLOK**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
 
 This is research software, not a real-time feed or investment-advice product.
 

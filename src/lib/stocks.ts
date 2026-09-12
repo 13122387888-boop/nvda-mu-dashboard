@@ -40,6 +40,12 @@ export const STOCKS = {
   AAOI: { name: "应用光电 Applied Optoelectronics", shortName: "应用光电", accent: "#00a7b5", assetType: "STOCK" },
   LITE: { name: "Lumentum Holdings", shortName: "Lumentum", accent: "#7a5cff", assetType: "STOCK" },
   BE: { name: "布鲁姆能源 Bloom Energy", shortName: "布鲁姆能源", accent: "#35b56a", assetType: "STOCK" },
+  MRVL: { name: "迈威尔科技 Marvell", shortName: "迈威尔", accent: "#ff5a36", assetType: "STOCK" },
+  IWM: { name: "iShares 罗素 2000 ETF", shortName: "罗素 2000 ETF", accent: "#5c7cfa", assetType: "ETF" },
+  SPY: { name: "SPDR 标普 500 ETF", shortName: "标普 500 ETF", accent: "#d7263d", assetType: "ETF" },
+  USO: { name: "United States Oil Fund", shortName: "美国原油 ETF", accent: "#c58b2b", assetType: "ETF" },
+  XLI: { name: "工业精选行业 SPDR ETF", shortName: "工业 ETF", accent: "#6f7f8f", assetType: "ETF" },
+  BLOK: { name: "Amplify 区块链 ETF", shortName: "区块链 ETF", accent: "#3eb5f1", assetType: "ETF" },
 } as const;
 
 export type SupportedSymbol = keyof typeof STOCKS;

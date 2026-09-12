@@ -2,30 +2,30 @@ import { describe, expect, it } from "vitest";
 import { isSupportedSymbol, STOCK_HISTORY_START_DATES, STOCKS, SUPPORTED_SYMBOLS } from "./stocks";
 
 describe("configured stock pool", () => {
-  it("contains the complete 41-symbol pool without duplicates", () => {
-    expect(SUPPORTED_SYMBOLS).toHaveLength(41);
-    expect(new Set(SUPPORTED_SYMBOLS).size).toBe(41);
+  it("contains the complete 47-symbol pool without duplicates", () => {
+    expect(SUPPORTED_SYMBOLS).toHaveLength(47);
+    expect(new Set(SUPPORTED_SYMBOLS).size).toBe(47);
     expect(SUPPORTED_SYMBOLS).toEqual(expect.arrayContaining([
       "SKHY", "TSM", "AAPL", "AVGO", "ORCL", "GLD", "XLF", "XLE", "XLU", "XLV",
       "MVRL", "SPCX", "CRCL", "INTC", "GOOG", "AMD", "IGV", "UVIX",
       "META", "AMZN", "ASML", "WDC", "STX", "PLTR", "XBI", "BRK.B", "LLY",
-      "GLW", "COHR", "AAOI", "LITE", "BE",
+      "GLW", "COHR", "AAOI", "LITE", "BE", "MRVL", "IWM", "SPY", "USO", "XLI", "BLOK",
     ]));
   });
 
   it("classifies stocks and ETFs for homepage filtering", () => {
     const stocks = SUPPORTED_SYMBOLS.filter((symbol) => STOCKS[symbol].assetType === "STOCK");
     const etfs = SUPPORTED_SYMBOLS.filter((symbol) => STOCKS[symbol].assetType === "ETF");
-    expect(stocks).toHaveLength(28);
-    expect(etfs).toHaveLength(13);
+    expect(stocks).toHaveLength(29);
+    expect(etfs).toHaveLength(18);
     expect(stocks).toEqual(expect.arrayContaining([
       "SKHY", "TSM", "AAPL", "AVGO", "ORCL", "SPCX", "CRCL", "INTC", "GOOG", "AMD",
       "META", "AMZN", "ASML", "WDC", "STX", "PLTR", "BRK.B", "LLY", "GLW", "COHR",
-      "AAOI", "LITE", "BE",
+      "AAOI", "LITE", "BE", "MRVL",
     ]));
     expect(etfs).toEqual(expect.arrayContaining([
       "GLD", "XLF", "XLE", "XLU", "XLV", "MVRL", "IGV", "UVIX",
-      "XBI",
+      "XBI", "IWM", "SPY", "USO", "XLI", "BLOK",
     ]));
   });
 
@@ -34,6 +34,7 @@ describe("configured stock pool", () => {
     expect(isSupportedSymbol("XLV")).toBe(true);
     expect(isSupportedSymbol("SPCX")).toBe(true);
     expect(isSupportedSymbol("MVRL")).toBe(true);
+    expect(isSupportedSymbol("MRVL")).toBe(true);
     expect(isSupportedSymbol("UNKNOWN")).toBe(false);
     expect(STOCK_HISTORY_START_DATES.SKHY).toBe("2026-07-10");
     expect(STOCK_HISTORY_START_DATES.SPCX).toBe("2026-06-12");

@@ -7,8 +7,9 @@ nextEnv.loadEnvConfig(process.cwd());
 try {
   const bootstrap = process.argv[2] === "bootstrap";
   const batch = await collectLongbridgeBatch(bootstrap ? 520 : 30);
+  console.log("[IMPORT] 行情已全部校验，正在统一写入并计算指标。");
   const result = await importLongbridgeCandleBatch(batch);
-  console.log("[SYNC] Longbridge", result);
+  console.log("[RESULT] " + JSON.stringify(result));
 } catch (error) {
   console.error(sanitizeError(error));
   process.exitCode = 1;

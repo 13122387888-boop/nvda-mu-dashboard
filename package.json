@@ -21,6 +21,8 @@
     "import:longbridge": "tsx scripts/import-longbridge-json.ts",
     "import:longbridge-plugin": "tsx scripts/import-longbridge-json.ts",
     "audit:data": "tsx scripts/audit-data.ts",
+    "launcher": "node scripts/launcher/server.mjs",
+    "launcher:install": "cscript //nologo scripts/launcher/install.vbs",
     "postinstall": "prisma generate"
   },
   "dependencies": {

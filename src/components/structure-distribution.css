@@ -1,0 +1,558 @@
+.structure-distribution {
+  margin: 0 0 14px;
+  border: 1px solid var(--line);
+  background: linear-gradient(145deg, rgba(141, 125, 255, 0.045), #0d1219 45%);
+  overflow: hidden;
+}
+.distribution-heading {
+  padding: 15px 17px 10px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+.distribution-heading > div:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.distribution-heading > div:first-child span {
+  color: var(--info);
+  font:
+    700 0.58rem/1 var(--font-geist-mono),
+    monospace;
+  letter-spacing: 0.1em;
+}
+.distribution-heading h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+.distribution-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px 13px;
+  color: #8491a1;
+  font-size: 0.6rem;
+}
+.distribution-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.distribution-legend i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--insufficient);
+}
+.distribution-chart {
+  width: 100%;
+  padding: 0 9px;
+  overflow: hidden;
+}
+.distribution-chart svg {
+  display: block;
+  width: 100%;
+  height: clamp(238px, 34vw, 310px);
+}
+.distribution-frame {
+  fill: rgba(8, 12, 18, 0.74);
+  stroke: #2b3542;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+.distribution-midline {
+  stroke: #303b49;
+  stroke-width: 1;
+  stroke-dasharray: 4 6;
+  vector-effect: non-scaling-stroke;
+}
+.distribution-chart text {
+  fill: #667384;
+  font:
+    600 10px var(--font-geist-sans),
+    sans-serif;
+}
+.distribution-chart .distribution-axis-label {
+  fill: #8290a1;
+  font:
+    700 10px var(--font-geist-mono),
+    monospace;
+  letter-spacing: 0.05em;
+}
+.distribution-point {
+  cursor: pointer;
+}
+.distribution-point circle {
+  fill: color-mix(in srgb, var(--insufficient) 28%, #111821);
+  stroke: var(--insufficient);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+  transition:
+    stroke-width 0.15s ease,
+    filter 0.15s ease;
+}
+.distribution-point text {
+  fill: #f4f7fb;
+  font:
+    800 9px var(--font-geist-mono),
+    monospace;
+  pointer-events: none;
+}
+.distribution-point .distribution-connector {
+  stroke: #667384;
+  stroke-width: 1;
+  stroke-dasharray: 2 2;
+  vector-effect: non-scaling-stroke;
+}
+.distribution-point circle.distribution-anchor {
+  fill: #f3f6fb;
+  stroke: #0d1219;
+  stroke-width: 1;
+}
+.distribution-point:hover circle:not(.distribution-anchor),
+.distribution-point:focus circle:not(.distribution-anchor) {
+  stroke-width: 4;
+  filter: brightness(1.25);
+}
+.distribution-empty {
+  min-height: 180px;
+  display: grid;
+  place-items: center;
+  color: #748091;
+  font-size: 0.72rem;
+}
+.structure-distribution > footer {
+  padding: 9px 16px 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: #687484;
+  font-size: 0.6rem;
+}
+
+@media (max-width: 700px) {
+  .distribution-heading {
+    padding: 13px 12px 7px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 9px;
+  }
+  .distribution-legend {
+    justify-content: flex-start;
+  }
+  .distribution-chart {
+    padding: 0 2px;
+  }
+  .distribution-chart svg {
+    height: 248px;
+  }
+  .structure-distribution > footer {
+    padding: 8px 12px 11px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+}
+
+.distribution-heading-tools {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 8px;
+}
+.distribution-point.selected circle:not(.distribution-anchor) {
+  stroke-width: 4;
+  filter: brightness(1.28) drop-shadow(0 0 5px rgba(255, 255, 255, 0.2));
+}
+.distribution-readout {
+  min-height: 42px;
+  margin: 0 16px 3px;
+  padding: 9px 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px dashed #303a47;
+  color: #6e7a8a;
+  font-size: 0.61rem;
+}
+.distribution-readout.active {
+  border-style: solid;
+  background: #101720;
+  color: #aeb8c5;
+}
+.distribution-readout > div {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+}
+.distribution-readout b {
+  color: var(--green);
+  font:
+    800 0.72rem/1 var(--font-geist-mono),
+    monospace;
+}
+.distribution-readout a {
+  flex: 0 0 auto;
+  color: var(--green);
+  font-weight: 700;
+}
+
+@media (max-width: 700px) {
+  .distribution-heading {
+    padding: 12px 11px 7px;
+  }
+  .distribution-heading-tools {
+    width: 100%;
+    align-items: stretch;
+  }
+  .distribution-chart svg {
+    height: 236px;
+  }
+  .distribution-readout {
+    margin: 0 10px 3px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 7px;
+  }
+  .distribution-readout a {
+    align-self: flex-end;
+  }
+}
+.structure-distribution {
+  min-width: 0;
+  max-width: 100%;
+}
+
+@media (max-width: 700px) {
+  .distribution-heading {
+    padding: 10px 10px 6px;
+  }
+  .distribution-chart svg {
+    height: 220px;
+  }
+  .distribution-readout {
+    min-height: 38px;
+    margin-inline: 9px;
+    padding: 7px 9px;
+  }
+}
+.distribution-legend i.rsi-hot {
+  background: var(--negative);
+}
+.distribution-legend i.rsi-strong {
+  background: var(--positive);
+}
+.distribution-legend i.rsi-weak {
+  background: var(--warning);
+}
+.distribution-legend i.rsi-cold {
+  background: var(--info);
+}
+.distribution-legend i.neutral {
+  background: var(--insufficient);
+}
+.distribution-point.rsi-hot circle:not(.distribution-anchor) {
+  fill: color-mix(in srgb, var(--negative) 28%, #111821);
+  stroke: var(--negative);
+}
+.distribution-point.rsi-strong circle:not(.distribution-anchor) {
+  fill: color-mix(in srgb, var(--positive) 28%, #111821);
+  stroke: var(--positive);
+}
+.distribution-point.rsi-weak circle:not(.distribution-anchor) {
+  fill: color-mix(in srgb, var(--warning) 27%, #111821);
+  stroke: var(--warning);
+}
+.distribution-point.rsi-cold circle:not(.distribution-anchor) {
+  fill: color-mix(in srgb, var(--info) 28%, #111821);
+  stroke: var(--info);
+}
+.distribution-point.neutral circle:not(.distribution-anchor) {
+  fill: color-mix(in srgb, var(--insufficient) 28%, #111821);
+  stroke: var(--insufficient);
+}
+
+@media (max-width: 400px) {
+  .structure-distribution,
+  .distribution-heading,
+  .distribution-heading-tools,
+  .distribution-legend,
+  .distribution-chart,
+  .distribution-readout,
+  .structure-distribution > footer {
+    min-width: 0;
+    max-width: 100%;
+  }
+  .distribution-legend {
+    gap: 6px 9px;
+    font-size: 0.56rem;
+  }
+  .distribution-legend span {
+    min-width: 0;
+  }
+  .distribution-readout > div {
+    max-width: 100%;
+  }
+}
+.distribution-heading-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.distribution-expand-button,
+.distribution-focus-close {
+  min-height: 30px;
+  padding: 6px 10px;
+  border: 1px solid #3b4654;
+  background: #111821;
+  color: #b4bfcc;
+  cursor: pointer;
+  font:
+    700 0.6rem/1 var(--font-geist-sans),
+    sans-serif;
+}
+.distribution-expand-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border-color: color-mix(in srgb, var(--info) 46%, #303a47);
+  color: #c9c3ff;
+}
+.distribution-expand-button:hover,
+.distribution-expand-button:focus-visible,
+.distribution-focus-close:hover,
+.distribution-focus-close:focus-visible {
+  border-color: var(--info);
+  background: color-mix(in srgb, var(--info) 10%, #111821);
+  color: #fff;
+  outline: none;
+}
+.structure-distribution > .distribution-chart {
+  overflow: hidden;
+}
+.structure-distribution > .distribution-chart svg {
+  width: min(100%, 1080px);
+  height: auto;
+  margin-inline: auto;
+}
+.distribution-focus-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  padding: clamp(8px, 2vw, 22px);
+  display: grid;
+  place-items: center;
+  background: rgba(2, 5, 9, 0.88);
+  backdrop-filter: blur(8px);
+}
+.distribution-focus-dialog {
+  width: min(1480px, 100%);
+  height: min(920px, 100%);
+  min-width: 0;
+  min-height: 0;
+  padding: 15px;
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
+  gap: 9px;
+  overflow: hidden;
+  border: 1px solid #344151;
+  background: #0b1017;
+  box-shadow: 0 26px 90px rgba(0, 0, 0, 0.65);
+}
+.distribution-focus-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+}
+.distribution-focus-header > div:first-child {
+  min-width: 0;
+}
+.distribution-focus-header > div:first-child > span {
+  color: var(--info);
+  font:
+    750 0.57rem/1 var(--font-geist-mono),
+    monospace;
+  letter-spacing: 0.1em;
+}
+.distribution-focus-header h2 {
+  margin: 5px 0 0;
+  font-size: 1.05rem;
+}
+.distribution-focus-header p {
+  margin: 7px 0 0;
+  color: #778495;
+  font-size: 0.62rem;
+  line-height: 1.45;
+}
+.distribution-focus-actions {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.distribution-focus-close {
+  min-height: 30px;
+}
+.distribution-focus-dialog > .distribution-legend {
+  justify-content: flex-start;
+}
+.distribution-focus-plot {
+  min-width: 0;
+  min-height: 0;
+  padding: 0;
+  overflow: auto;
+  border: 1px solid #222c38;
+  background: #080c12;
+  overscroll-behavior: contain;
+}
+.distribution-focus-plot svg {
+  width: 100%;
+  min-width: 760px;
+  height: 100%;
+  min-height: 410px;
+}
+.distribution-focus-dialog > .distribution-readout {
+  margin: 0;
+}
+.distribution-focus-dialog > footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: #687484;
+  font-size: 0.59rem;
+}
+
+@media (max-width: 700px) {
+  .distribution-heading-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .distribution-expand-button {
+    min-height: 38px;
+    padding-inline: 11px;
+  }
+  .structure-distribution > .distribution-chart svg {
+    width: 100%;
+    max-width: 100%;
+    height: auto;
+    margin-inline: auto;
+  }
+  .distribution-focus-overlay {
+    padding: 6px;
+  }
+  .distribution-focus-dialog {
+    padding: 10px;
+    gap: 7px;
+  }
+  .distribution-focus-header {
+    gap: 10px;
+  }
+  .distribution-focus-header p {
+    max-width: 42ch;
+  }
+  .distribution-focus-actions {
+    align-items: flex-end;
+    flex-direction: column-reverse;
+  }
+  .distribution-focus-close {
+    min-height: 32px;
+  }
+  .distribution-focus-plot svg {
+    min-width: 720px;
+    min-height: 380px;
+  }
+  .distribution-focus-dialog > footer {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 3px;
+  }
+}
+
+@media (max-width: 700px) and (orientation: landscape) {
+  .distribution-focus-overlay {
+    padding: 4px;
+  }
+  .distribution-focus-dialog {
+    width: 100%;
+    height: 100%;
+    padding: 7px 9px;
+  }
+  .distribution-focus-header p {
+    display: none;
+  }
+  .distribution-focus-dialog > .distribution-legend,
+  .distribution-focus-dialog > footer {
+    display: none;
+  }
+  .distribution-focus-dialog {
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+  .distribution-focus-plot svg {
+    min-width: 680px;
+    min-height: 330px;
+  }
+}
+
+@media (orientation: landscape) and (max-height: 600px) {
+  .distribution-focus-overlay {
+    padding: 4px;
+  }
+  .distribution-focus-dialog {
+    width: 100%;
+    height: 100%;
+    padding: 5px;
+    position: relative;
+    display: block;
+  }
+  .distribution-focus-header {
+    position: absolute;
+    top: 10px;
+    right: 10px;
+    z-index: 3;
+    pointer-events: none;
+  }
+  .distribution-focus-header > div:first-child,
+  .distribution-focus-dialog > .distribution-legend,
+  .distribution-focus-dialog > footer {
+    display: none;
+  }
+  .distribution-focus-actions {
+    align-items: center;
+    flex-direction: row;
+    pointer-events: auto;
+  }
+  .distribution-focus-close {
+    min-height: 31px;
+  }
+  .distribution-focus-plot {
+    width: 100%;
+    height: 100%;
+    border: 0;
+  }
+  .distribution-focus-plot svg {
+    width: 100%;
+    min-width: 680px;
+    height: 100%;
+    min-height: 0;
+  }
+  .distribution-focus-dialog > .distribution-readout {
+    position: absolute;
+    right: 10px;
+    bottom: 10px;
+    left: 10px;
+    z-index: 3;
+    margin: 0;
+    border-color: #384454;
+    background: rgba(10, 15, 22, 0.94);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.42);
+  }
+  .distribution-focus-dialog > .distribution-readout:not(.active) {
+    display: none;
+  }
+}

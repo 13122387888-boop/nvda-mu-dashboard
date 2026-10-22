@@ -21,11 +21,11 @@ export const metadata: Metadata = {
   metadataBase: new URL(siteOrigin),
   applicationName: `${SITE_NAME} ${SITE_NAME_EN}`,
   title: { default: `${SITE_NAME}｜热门美股日终研究`, template: `%s · ${SITE_NAME}` },
-  description: "热门美股的收盘行情、趋势、波动率与期权持仓研究看板。",
+  description: "热门美股的收盘行情、趋势、波动与成交量研究看板。",
   alternates: { canonical: "/" },
   openGraph: {
     title: `${SITE_NAME}｜热门美股日终研究`,
-    description: "快速扫描关注理由，再查看价格趋势、波动率与期权持仓依据。",
+    description: "快速扫描关注理由，再查看价格趋势、波动与成交量依据。",
     type: "website",
     siteName: `${SITE_NAME} ${SITE_NAME_EN}`,
     url: "/",
@@ -34,7 +34,7 @@ export const metadata: Metadata = {
   twitter: {
     card: "summary_large_image",
     title: `${SITE_NAME}｜热门美股日终研究`,
-    description: "快速扫描关注理由，再查看价格趋势、波动率与期权持仓依据。",
+    description: "快速扫描关注理由，再查看价格趋势、波动与成交量依据。",
     images: ["/og-v2.jpg"],
   },
 };

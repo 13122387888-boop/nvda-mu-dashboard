@@ -7,19 +7,7 @@ export type SnapshotExportData = {
   symbol: string;
   name: string;
   stockDate: string;
-  optionsDate: string | null;
-  expiration: string | null;
-  optionWindow: string;
-  close: string;
-  change: string;
   summary: string;
-  trend: string;
-  rsi: string;
-  volatility: string;
-  expectedRange: string;
-  callWall: string;
-  putWall: string;
-  gamma: string;
 };
 
 function snapshotUrlFor(data: SnapshotExportData) {
@@ -34,8 +22,6 @@ function shareText(data: SnapshotExportData) {
   return [
     `${data.symbol} ${data.name}｜${data.stockDate} ${SITE_NAME}`,
     data.summary,
-    `趋势：${data.trend}｜Gamma：${data.gamma}`,
-    `关键价位：看跌墙 ${data.putWall}｜看涨墙 ${data.callWall}`,
   ].join("\n");
 }
 
@@ -78,10 +64,17 @@ export function SnapshotActions({ data }: { data: SnapshotExportData }) {
 
   return (
     <div className="snapshot-actions" aria-live="polite">
-      <button type="button" className="primary" onClick={shareDirectly} disabled={busy}>
+      <button
+        type="button"
+        className="primary"
+        onClick={shareDirectly}
+        disabled={busy}
+      >
         {busy ? "正在打开…" : "直接分享"}
       </button>
-      <button type="button" onClick={copyLink}>复制链接</button>
+      <button type="button" onClick={copyLink}>
+        复制链接
+      </button>
       {status && <span>{status}</span>}
     </div>
   );

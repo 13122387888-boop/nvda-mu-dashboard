@@ -1,1086 +1,150 @@
-import { addDays, dateToYmd, todayYmd } from "@/lib/dates";
-import { assessOptionDataQuality } from "@/lib/data-quality";
-import { getPrisma } from "@/lib/db/prisma";
-import { Prisma, type StockMetrics } from "@/generated/prisma/client";
 import { unstable_cache } from "next/cache";
-import { bollingerBandsSeries, summarizeBollingerBands, type BollingerBandsSummary } from "@/lib/indicators/bollinger-bands";
-import { calculateGammaExposureProxy } from "@/lib/indicators/options/gamma-exposure";
-import { calculateOptionMetrics } from "@/lib/indicators/options/option-metrics";
-import { MAX_OPTION_SNAPSHOT_LAG_BUSINESS_DAYS, optionSnapshotLagBusinessDays } from "@/lib/indicators/options/option-snapshot-freshness";
-import { aggregateOptionWall } from "@/lib/indicators/options/option-walls";
-import { calculateIvSkew } from "@/lib/indicators/options/iv-skew";
-import { addWallPersistence, buildOptionResearchHistory, calculateIvPercentile, calculateIvTermStructure, calculateOiChange, calculateWallProfile } from "@/lib/indicators/options/option-research";
-import { putCallOpenInterest } from "@/lib/indicators/options/put-call-ratio";
+import { dateToYmd } from "@/lib/dates";
+import { getPrisma } from "@/lib/db/prisma";
+import { STOCKS, SUPPORTED_SYMBOLS, type SupportedSymbol } from "@/lib/stocks";
+import type { StockDailyRecord } from "@/lib/providers/types";
+import {
+  bollingerBandsSeries,
+  summarizeBollingerBands,
+} from "@/lib/indicators/bollinger-bands";
 import { movingAverageSeries } from "@/lib/indicators/moving-average";
-import { calculateStockMetrics, calculateTrendConfidence, calculateTrendScoreBreakdown, classifyMarketStatus } from "@/lib/indicators/stock-metrics";
-import { realizedVolatility } from "@/lib/indicators/realized-volatility";
-import { latestRelativeVolume, relativeVolumeSeries } from "@/lib/indicators/relative-volume";
-import { calculateVolumeProfile, type VolumeProfile } from "@/lib/indicators/volume-profile";
+import { relativeVolumeSeries } from "@/lib/indicators/relative-volume";
 import { wilderRsi } from "@/lib/indicators/rsi";
-import type { OptionContractRecord, StockDailyRecord, SupportedSymbol } from "@/lib/providers/types";
-import { OnclickMediaProvider } from "@/lib/providers/onclickmedia/onclickmedia-provider";
-import { STOCKS, SUPPORTED_SYMBOLS } from "@/lib/stocks";
+import {
+  calculateStockMetrics,
+  calculateTrendConfidence,
+  calculateTrendScoreBreakdown,
+} from "@/lib/indicators/stock-metrics";
+export { STOCKS, SUPPORTED_SYMBOLS, isSupportedSymbol } from "@/lib/stocks";
 
-export { isSupportedSymbol, STOCKS, SUPPORTED_SYMBOLS } from "@/lib/stocks";
-
-export type OptionWindow = "ALL" | "7" | "30" | "50";
-
-export type OptionConclusionFreshness = {
-  status: "CURRENT" | "HISTORICAL" | "UNAVAILABLE";
-  isCurrent: boolean;
-  stockDate: string | null;
-  metricsDate: string | null;
-  snapshotDate: string | null;
-  ageBusinessDays: number | null;
-  reason: string;
-};
-
-export function assessOptionConclusionFreshness(input: {
-  stockDate: string | null;
-  metricsDate?: string | null;
-  snapshotDate: string | null;
-  hasSnapshot?: boolean;
-  asOfDate?: string;
-  maxBusinessDays?: number;
-}): OptionConclusionFreshness {
-  const { stockDate, snapshotDate } = input;
-  const metricsDate = input.metricsDate ?? stockDate;
-  if (!snapshotDate || input.hasSnapshot === false) {
-    return {
-      status: "UNAVAILABLE",
-      isCurrent: false,
-      stockDate,
-      metricsDate,
-      snapshotDate,
-      ageBusinessDays: null,
-      reason: "当前没有可用的期权快照",
-    };
-  }
-  if (!stockDate || !metricsDate || metricsDate !== stockDate) {
-    const expectedDates = [...new Set([stockDate, metricsDate].filter((value): value is string => Boolean(value)))];
-    return {
-      status: "HISTORICAL",
-      isCurrent: false,
-      stockDate,
-      metricsDate,
-      snapshotDate,
-      ageBusinessDays: null,
-      reason: expectedDates.length
-        ? `股票与指标日期 ${expectedDates.join(" / ")} 尚未对齐`
-        : `仅有 ${snapshotDate} 的历史期权快照，股票日期暂不可用`,
-    };
-  }
-
-  const asOfDate = input.asOfDate ?? todayYmd();
-  if (snapshotDate > asOfDate) {
-    return {
-      status: "HISTORICAL",
-      isCurrent: false,
-      stockDate,
-      metricsDate,
-      snapshotDate,
-      ageBusinessDays: null,
-      reason: `期权快照日期 ${snapshotDate} 晚于当前日期 ${asOfDate}`,
-    };
-  }
-  const ageBusinessDays = optionSnapshotLagBusinessDays(stockDate, snapshotDate);
-  const maxBusinessDays = input.maxBusinessDays ?? MAX_OPTION_SNAPSHOT_LAG_BUSINESS_DAYS;
-  if (ageBusinessDays === null || ageBusinessDays > maxBusinessDays) {
-    return {
-      status: "HISTORICAL",
-      isCurrent: false,
-      stockDate,
-      metricsDate,
-      snapshotDate,
-      ageBusinessDays,
-      reason: snapshotDate > stockDate
-        ? `期权快照日期 ${snapshotDate} 晚于股票日期 ${stockDate}`
-        : `期权快照比股票数据早 ${ageBusinessDays ?? "未知"} 个工作日`,
-    };
-  }
-
+export function buildStockDashboard(
+  symbol: SupportedSymbol,
+  history: StockDailyRecord[],
+) {
+  const records = history
+    .filter((row) => row.provider === "LONGBRIDGE")
+    .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
+  const metrics = calculateStockMetrics(records);
+  if (!metrics) return null;
+  const closes = records.map((row) => row.adjustedClose ?? row.close);
+  const ma50 = movingAverageSeries(closes, 50);
+  const ma100 = movingAverageSeries(closes, 100);
+  const ma200 = movingAverageSeries(closes, 200);
+  const bands = bollingerBandsSeries(closes);
+  const volume = relativeVolumeSeries(records.map((row) => row.volume));
+  const breakdown = calculateTrendScoreBreakdown({
+    ...metrics,
+    previousClose: closes.at(-2) ?? null,
+  });
+  const confidence = calculateTrendConfidence({
+    ...metrics,
+    historyCount: records.length,
+  });
   return {
-    status: "CURRENT",
-    isCurrent: true,
-    stockDate,
-    metricsDate,
-    snapshotDate,
-    ageBusinessDays,
-    reason: ageBusinessDays === 0
-      ? "期权快照与当前股票数据对齐"
-      : `使用最近可用期权快照（较股票数据早 ${ageBusinessDays} 个工作日）`,
-  };
-}
-
-const OPTION_WINDOW_LIMITS: Record<OptionWindow, number | null> = {
-  ALL: null,
-  "7": 7,
-  "30": 30,
-  "50": 50,
-};
-
-const OPTION_WINDOW_LABELS: Record<OptionWindow, string> = {
-  ALL: "全部到期日",
-  "7": "7天内",
-  "30": "30天内",
-  "50": "50天内",
-};
-
-const numberOrNull = (value: { toString(): string } | null) => value === null ? null : Number(value);
-
-const EMPTY_VOLUME_PROFILE: VolumeProfile = {
-  status: "UNAVAILABLE", bins: [], pointOfControl: null, valueAreaHigh: null, valueAreaLow: null,
-  sampleStart: null, sampleEnd: null, sessionCount: 0, barCount: 0, barSize: "1分钟",
-};
-
-const EMPTY_BOLLINGER: BollingerBandsSummary = {
-  middle: null,
-  upper: null,
-  lower: null,
-  percentB: null,
-  bandwidth: null,
-  bandwidthPercentile: null,
-  state: "UNAVAILABLE",
-  sampleSize: 0,
-};
-
-export type MaStructure = "BULLISH" | "BULLISH_PULLBACK" | "BEARISH" | "MIXED" | "UNAVAILABLE";
-
-export function classifyMaStructure(input: {
-  close: number;
-  ma50: number | null;
-  ma100: number | null;
-  ma200: number | null;
-}): MaStructure {
-  const { close, ma50, ma100, ma200 } = input;
-  if (
-    !Number.isFinite(close)
-    || close <= 0
-    || ma50 === null
-    || ma100 === null
-    || ma200 === null
-  ) return "UNAVAILABLE";
-
-  if (ma50 > ma100 && ma100 > ma200) {
-    return close > ma50 ? "BULLISH" : close >= ma100 ? "BULLISH_PULLBACK" : "MIXED";
-  }
-  if (close < ma50 && ma50 < ma100 && ma100 < ma200) return "BEARISH";
-  return "MIXED";
-}
-
-async function loadVolumeProfile(symbol: SupportedSymbol, endDate: string) {
-  try {
-    const provider = new OnclickMediaProvider();
-    const result = await provider.getStockIntradayHistory({ symbol, startDate: addDays(endDate, -35), endDate });
-    return calculateVolumeProfile(result.records);
-  } catch {
-    return EMPTY_VOLUME_PROFILE;
-  }
-}
-
-const getCachedVolumeProfile = unstable_cache(loadVolumeProfile, ["volume-profile-v1"], { revalidate: 21_600 });
-
-type OptionDatabaseRow = {
-  symbol: string;
-  tradeDate: Date;
-  expiration: Date;
-  optionType: "CALL" | "PUT";
-  strike: { toString(): string };
-  contractSymbol: string | null;
-  contractMultiplier: number;
-  bid: { toString(): string } | null;
-  ask: { toString(): string } | null;
-  last: { toString(): string } | null;
-  volume: bigint | null;
-  openInterest: bigint | null;
-  impliedVolatility: { toString(): string } | null;
-  delta: { toString(): string } | null;
-  gamma: { toString(): string } | null;
-  theta: { toString(): string } | null;
-  vega: { toString(): string } | null;
-};
-
-function toOptionRecord(row: OptionDatabaseRow): OptionContractRecord {
-  return {
-    symbol: row.symbol as SupportedSymbol,
-    tradeDate: dateToYmd(row.tradeDate),
-    expiration: dateToYmd(row.expiration),
-    optionType: row.optionType,
-    strike: Number(row.strike),
-    contractSymbol: row.contractSymbol,
-    contractMultiplier: row.contractMultiplier,
-    bid: numberOrNull(row.bid),
-    ask: numberOrNull(row.ask),
-    last: numberOrNull(row.last),
-    volume: row.volume === null ? null : Number(row.volume),
-    openInterest: row.openInterest === null ? null : Number(row.openInterest),
-    impliedVolatility: numberOrNull(row.impliedVolatility),
-    delta: numberOrNull(row.delta),
-    gamma: numberOrNull(row.gamma),
-    theta: numberOrNull(row.theta),
-    vega: numberOrNull(row.vega),
-    provider: "ONCLICKMEDIA",
-  };
-}
-
-function normalizeOptionWindow(value?: string | null): OptionWindow {
-  return value === "7" || value === "30" || value === "50" ? value : "ALL";
-}
-
-function remainingDays(tradeDate: Date, expiration: Date) {
-  return Math.ceil((expiration.getTime() - tradeDate.getTime()) / 86_400_000);
-}
-
-export type ExpectedRangeValidation = {
-  lower: number | null;
-  upper: number | null;
-  state: "ABOVE" | "BELOW" | "NEAR_UPPER" | "NEAR_LOWER" | "INSIDE" | "UNAVAILABLE";
-  boundaryDistancePct: number | null;
-};
-
-export function classifyExpectedRange(
-  lower: number | null,
-  upper: number | null,
-  currentClose: number,
-): ExpectedRangeValidation {
-  if (lower === null || upper === null || !Number.isFinite(lower) || !Number.isFinite(upper) || lower >= upper || !Number.isFinite(currentClose) || currentClose <= 0) {
-    return { lower, upper, state: "UNAVAILABLE", boundaryDistancePct: null };
-  }
-
-  let state: ExpectedRangeValidation["state"];
-  let boundary: number;
-  if (currentClose > upper) {
-    state = "ABOVE";
-    boundary = upper;
-  } else if (currentClose < lower) {
-    state = "BELOW";
-    boundary = lower;
-  } else {
-    const position = (currentClose - lower) / (upper - lower);
-    if (position <= 0.15) {
-      state = "NEAR_LOWER";
-      boundary = lower;
-    } else if (position >= 0.85) {
-      state = "NEAR_UPPER";
-      boundary = upper;
-    } else {
-      state = "INSIDE";
-      boundary = currentClose - lower <= upper - currentClose ? lower : upper;
-    }
-  }
-
-  return {
-    lower,
-    upper,
-    state,
-    boundaryDistancePct: Math.abs(currentClose - boundary) / currentClose * 100,
-  };
-}
-
-function calculateDayOverDayChange(input: {
-  symbol: SupportedSymbol;
-  currentTradeDate: Date;
-  currentOptionsTradeDate: Date | null;
-  previousOptionsTradeDate: Date | null;
-  currentTrendScore: number | null;
-  currentClose: number;
-  currentOptionRows: OptionDatabaseRow[];
-  previousOptionRows: OptionDatabaseRow[];
-  currentStockHistory: StockDailyRecord[];
-}) {
-  // Keep the same historical window as the current score so Wilder RSI does not
-  // appear to jump merely because the previous-day calculation started later.
-  const history = input.currentStockHistory;
-  const previousStock = history.length > 1 ? calculateStockMetrics(history.slice(0, -1)) : null;
-  const relativeVolume = latestRelativeVolume(history.map((row) => row.volume));
-  const currentOptions = input.currentOptionRows.map(toOptionRecord);
-  const previousOptions = input.previousOptionRows.map(toOptionRecord);
-  const previousClose = previousStock?.close ?? null;
-  const currentGamma = calculateGammaExposureProxy(currentOptions.map((row) => ({
-    optionType: row.optionType,
-    gamma: row.gamma,
-    openInterest: row.openInterest,
-    contractMultiplier: row.contractMultiplier,
-  })), input.currentClose).regime;
-  const previousGamma = previousClose === null ? "UNAVAILABLE" : calculateGammaExposureProxy(previousOptions.map((row) => ({
-    optionType: row.optionType,
-    gamma: row.gamma,
-    openInterest: row.openInterest,
-    contractMultiplier: row.contractMultiplier,
-  })), previousClose).regime;
-  const currentCallWall = aggregateOptionWall(currentOptions, "CALL", input.currentClose);
-  const previousCallWall = previousClose === null ? null : aggregateOptionWall(previousOptions, "CALL", previousClose);
-  const previousPricing = previousClose === null ? null : calculateOptionMetrics(previousOptions, previousClose);
-  const expectedRange = classifyExpectedRange(
-    previousPricing?.expectedLower ?? null,
-    previousPricing?.expectedUpper ?? null,
-    input.currentClose,
-  );
-
-  return {
-    previousStockDate: previousStock?.tradeDate ?? null,
-    previousOptionsDate: input.previousOptionsTradeDate ? dateToYmd(input.previousOptionsTradeDate) : null,
-    trendScoreDelta: input.currentTrendScore === null || previousStock?.trendScore === null || previousStock?.trendScore === undefined
-      ? null
-      : input.currentTrendScore - previousStock.trendScore,
-    gamma: { previous: previousGamma, current: currentGamma },
-    callWall: {
-      previous: previousCallWall,
-      current: currentCallWall,
-      delta: currentCallWall === null || previousCallWall === null ? null : currentCallWall - previousCallWall,
+    symbol,
+    ...STOCKS[symbol],
+    source: "LONGBRIDGE" as const,
+    stockDate: metrics.tradeDate,
+    quote: {
+      close: metrics.close,
+      dailyChange: metrics.dailyChange,
+      dailyChangePct: metrics.dailyChangePct,
+      marketStatus: metrics.marketStatus,
     },
-    expectedRange,
-    relativeVolume,
+    trend: {
+      ...metrics,
+      score: metrics.trendScore,
+      breakdown,
+      confidence,
+      bollinger: summarizeBollingerBands(bands),
+      historyCount: records.length,
+    },
+    priceHistory: records
+      .map((row, index) => ({
+        date: row.tradeDate,
+        open: row.open,
+        high: row.high,
+        low: row.low,
+        close: closes[index],
+        ma50: ma50[index],
+        ma100: ma100[index],
+        ma200: ma200[index],
+        bollingerUpper: bands[index].upper,
+        bollingerMiddle: bands[index].middle,
+        bollingerLower: bands[index].lower,
+        bollingerPercentB: bands[index].percentB,
+        bollingerBandwidth: bands[index].bandwidth,
+        rsi14: wilderRsi(closes.slice(0, index + 1)),
+        volume: volume[index].volume,
+        volumeAverage20: volume[index].averageVolume,
+        relativeVolume: volume[index].relativeVolume,
+      }))
+      .slice(-130),
   };
 }
 
-async function loadDayOverDayChange(input: {
-  symbol: SupportedSymbol;
-  currentTradeDate: Date;
-  currentOptionsTradeDate: Date | null;
-  currentTrendScore: number | null;
-  currentClose: number;
-  currentOptionRows?: OptionDatabaseRow[];
-  currentStockHistory?: StockDailyRecord[];
-}) {
-  const prisma = getPrisma();
-  const history = input.currentStockHistory
-    ?? (await prisma.stockDaily.findMany({
-      where: { symbol: input.symbol, tradeDate: { lte: input.currentTradeDate } },
-      orderBy: { tradeDate: "desc" },
-      take: 210,
-    })).reverse().map((row) => ({
-      symbol: input.symbol,
+async function loadStockDashboard(symbol: SupportedSymbol) {
+  const rows = await getPrisma().stockDaily.findMany({
+    where: { symbol, provider: "LONGBRIDGE" },
+    orderBy: { tradeDate: "desc" },
+    take: 520,
+  });
+  return buildStockDashboard(
+    symbol,
+    rows.map((row) => ({
+      symbol,
       tradeDate: dateToYmd(row.tradeDate),
       open: Number(row.open),
       high: Number(row.high),
       low: Number(row.low),
       close: Number(row.close),
-      adjustedClose: numberOrNull(row.adjustedClose),
+      adjustedClose:
+        row.adjustedClose === null ? null : Number(row.adjustedClose),
       volume: row.volume === null ? null : Number(row.volume),
-      provider: row.provider === "LONGBRIDGE" ? "LONGBRIDGE" as const : "ONCLICKMEDIA" as const,
-    }));
-  const previousOptionDateRow = input.currentOptionsTradeDate
-    ? await prisma.optionEod.findFirst({
-        where: { symbol: input.symbol, tradeDate: { lt: input.currentOptionsTradeDate } },
-        orderBy: { tradeDate: "desc" },
-        select: { tradeDate: true },
-      })
-    : null;
-  const [currentOptionRows, previousOptionRows] = await Promise.all([
-    input.currentOptionRows
-      ? Promise.resolve(input.currentOptionRows)
-      : input.currentOptionsTradeDate
-        ? prisma.optionEod.findMany({
-            where: { symbol: input.symbol, tradeDate: input.currentOptionsTradeDate, expiration: { gt: input.currentOptionsTradeDate } },
-          })
-        : Promise.resolve([]),
-    previousOptionDateRow
-      ? prisma.optionEod.findMany({
-          where: { symbol: input.symbol, tradeDate: previousOptionDateRow.tradeDate, expiration: { gt: previousOptionDateRow.tradeDate } },
-        })
-      : Promise.resolve([]),
-  ]);
-  return calculateDayOverDayChange({
-    ...input,
-    previousOptionsTradeDate: previousOptionDateRow?.tradeDate ?? null,
-    currentOptionRows,
-    previousOptionRows,
-    currentStockHistory: history,
-  });
-}
-
-function percentileRank(values: Array<number | null>, current: number | null, minimumSamples = 60) {
-  const valid = values.filter((value): value is number => value !== null && Number.isFinite(value)).slice(-252);
-  if (current === null || !Number.isFinite(current) || valid.length < minimumSamples) {
-    return { percentile: null, sampleSize: valid.length };
-  }
-  const atOrBelow = valid.filter((value) => value <= current).length;
-  return { percentile: Math.round((atOrBelow / valid.length) * 100), sampleSize: valid.length };
-}
-
-export function ivPercentileLabel(input: { percentile: number | null; sampleSize: number }) {
-  if (input.percentile === null) return `近${input.sampleSize}次·样本不足`;
-  const position = input.percentile >= 70 ? "偏高" : input.percentile <= 30 ? "偏低" : "中位";
-  return `近${input.sampleSize}次·${input.sampleSize < 20 ? "初步" : ""}${position}`;
-}
-
-function buildHistoricalPositions(closes: number[], current: { rsi14: number | null; rv20: number | null; ma50: number | null }) {
-  const rsiSeries = closes.map((_, index) => wilderRsi(closes.slice(0, index + 1), 14));
-  const rvSeries = closes.map((_, index) => realizedVolatility(closes.slice(0, index + 1), 20));
-  const ma50Series = movingAverageSeries(closes, 50);
-  const deviationSeries = closes.map((close, index) => ma50Series[index] === null ? null : (close / ma50Series[index]! - 1));
-  const currentDeviation = current.ma50 === null || current.ma50 === 0 ? null : closes.at(-1)! / current.ma50 - 1;
-  return {
-    rsi14: { value: current.rsi14, ...percentileRank(rsiSeries, current.rsi14) },
-    rv20: { value: current.rv20, ...percentileRank(rvSeries, current.rv20) },
-    ma50Deviation: { value: currentDeviation, ...percentileRank(deviationSeries, currentDeviation) },
-  };
-}
-
-type AttentionTone = "positive" | "negative" | "warning" | "neutral";
-
-function percentDistance(value: number | null, close: number) {
-  return value === null || close <= 0 ? null : Math.abs(value / close - 1) * 100;
-}
-
-export function stockAttention(input: {
-  close: number;
-  marketStatus: string;
-  optionFreshness: OptionConclusionFreshness;
-  gammaRegime: "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
-  callWall: number | null;
-  putWall: number | null;
-  dayOverDay: Awaited<ReturnType<typeof loadDayOverDayChange>> | null;
-}): { label: string; detail: string; score: number; tone: AttentionTone } {
-  const change = input.dayOverDay;
-  // A one-weekday-lag snapshot is useful for research charts, but it must not
-  // be promoted as a current-day alert or structural change.
-  const optionsCurrent = input.optionFreshness.isCurrent && input.optionFreshness.ageBusinessDays === 0;
-  const gammaChanged = optionsCurrent && change
-    && change.gamma.previous !== "UNAVAILABLE"
-    && change.gamma.current !== "UNAVAILABLE"
-    && change.gamma.previous !== change.gamma.current;
-  if (gammaChanged) {
-    const labels = { POSITIVE: "正 Gamma", NEGATIVE: "负 Gamma", NEUTRAL: "Gamma 中性", UNAVAILABLE: "Gamma 暂无" } as const;
-    const tone = change.gamma.current === "NEGATIVE" ? "negative" : change.gamma.current === "POSITIVE" ? "positive" : "warning";
-    return {
-      label: "Gamma 状态切换",
-      detail: `${labels[change.gamma.previous]} → ${labels[change.gamma.current]}`,
-      score: 100,
-      tone,
-    };
-  }
-
-  if (change?.trendScoreDelta !== null && change?.trendScoreDelta !== undefined && Math.abs(change.trendScoreDelta) >= 10) {
-    const rising = change.trendScoreDelta > 0;
-    return {
-      label: rising ? "趋势分显著上升" : "趋势分显著下降",
-      detail: `较昨日 ${rising ? "+" : ""}${change.trendScoreDelta} 分`,
-      score: 90,
-      tone: rising ? "positive" : "negative",
-    };
-  }
-
-  if (optionsCurrent && (change?.expectedRange.state === "ABOVE" || change?.expectedRange.state === "BELOW")) {
-    const above = change.expectedRange.state === "ABOVE";
-    return {
-      label: above ? "上破昨日预期上沿" : "下破昨日预期下沿",
-      detail: change.expectedRange.boundaryDistancePct === null
-        ? "当前收盘已越过昨日预期边界"
-        : `越过边界约 ${change.expectedRange.boundaryDistancePct.toFixed(1)}%`,
-      score: 80,
-      tone: above ? "warning" : "negative",
-    };
-  }
-
-  const callWallMovePct = change?.callWall.delta === null || change?.callWall.delta === undefined || input.close <= 0
-    ? null
-    : Math.abs(change.callWall.delta) / input.close * 100;
-  if (optionsCurrent && callWallMovePct !== null && callWallMovePct >= 2) {
-    const rising = change!.callWall.delta! > 0;
-    return {
-      label: rising ? "看涨墙显著上移" : "看涨墙显著下移",
-      detail: `较昨日移动约收盘价的 ${callWallMovePct.toFixed(1)}%`,
-      score: 70,
-      tone: "warning",
-    };
-  }
-
-  const relativeVolume = change?.relativeVolume.relativeVolume ?? null;
-  if (relativeVolume !== null && relativeVolume >= 1.5) {
-    return {
-      label: "成交量明显放大",
-      detail: `RVOL ${relativeVolume.toFixed(1)}×（相对20日均量）`,
-      score: 60,
-      tone: "warning",
-    };
-  }
-
-  if (optionsCurrent && input.gammaRegime === "NEGATIVE") return { label: "负 Gamma 环境", detail: "短线波动可能更容易被放大", score: 50, tone: "negative" };
-
-  const wallLevels = optionsCurrent ? [
-    { label: "接近看涨墙", value: input.callWall },
-    { label: "接近看跌墙", value: input.putWall },
-  ].map((item) => ({ ...item, distance: percentDistance(item.value, input.close) }))
-    .filter((item): item is typeof item & { distance: number } => item.distance !== null)
-    .sort((a, b) => a.distance - b.distance) : [];
-  if (wallLevels[0] && wallLevels[0].distance <= 3) {
-    return { label: wallLevels[0].label, detail: `距离约 ${wallLevels[0].distance.toFixed(1)}%`, score: 40 - wallLevels[0].distance, tone: "warning" };
-  }
-
-  if (input.optionFreshness.status === "HISTORICAL") {
-    return { label: "期权快照非当前", detail: `${input.optionFreshness.reason}，未用于当前结论`, score: 30, tone: "warning" };
-  }
-  if (input.optionFreshness.status === "UNAVAILABLE") {
-    return { label: "期权数据待补充", detail: "价格趋势可用，期权结构暂不可判断", score: 30, tone: "warning" };
-  }
-  if (input.marketStatus === "STRONG_BULLISH") return { label: "趋势强势偏多", detail: "价格与均线结构保持强势", score: 25, tone: "positive" };
-  if (input.marketStatus === "BEARISH") return { label: "趋势偏空", detail: "价格处于偏弱趋势结构", score: 25, tone: "negative" };
-  return { label: "结构暂无明显异常", detail: "进入详情查看完整依据", score: 20, tone: "neutral" };
-}
-
-function buildStockCard(input: {
-  symbol: SupportedSymbol;
-  metrics: StockMetrics | null;
-  stockHistoryRows: Array<{
-    tradeDate: Date;
-    close: number;
-    volume: number | null;
-    provider: string;
-  }>;
-  ivHistory: number[];
-  gammaRegime: "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE";
-  hasOptionSnapshot: boolean;
-}) {
-  const { symbol, metrics } = input;
-  const alignedStockHistoryRows = metrics
-    ? input.stockHistoryRows.filter((row) => row.tradeDate <= metrics.tradeDate).slice(0, 271)
-    : input.stockHistoryRows;
-  const historyCount = alignedStockHistoryRows.length;
-  if (!metrics) {
-    const optionFreshness = assessOptionConclusionFreshness({ stockDate: null, snapshotDate: null });
-    return {
-      symbol,
-      name: STOCKS[symbol].name,
-      shortName: STOCKS[symbol].shortName,
-      accent: STOCKS[symbol].accent,
-      assetType: STOCKS[symbol].assetType,
-      close: null,
-      dailyChangePct: null,
-      trendScore: null,
-      trendBreakdown: null,
-      trendConfidence: calculateTrendConfidence({ ma50: null, ma100: null, ma200: null, historyCount }),
-      marketStatus: "INSUFFICIENT_DATA" as const,
-      gammaRegime: "UNAVAILABLE" as const,
-      optionFreshness,
-      attention: { label: "等待首次同步", detail: "数据完成后自动生成观察理由", score: 100, tone: "warning" as const },
-      dayOverDay: null,
-      relativeVolume: null,
-      rsi14: null,
-      bollinger: { ...EMPTY_BOLLINGER },
-      maStructure: "UNAVAILABLE" as const,
-      ivPercentile: { percentile: null, sampleSize: 0, label: "近0次·样本不足" },
-      dataDate: null,
-    };
-  }
-
-  const close = Number(metrics.close);
-  const dataDate = dateToYmd(metrics.tradeDate);
-  const latestStockDate = input.stockHistoryRows[0] ? dateToYmd(input.stockHistoryRows[0].tradeDate) : dataDate;
-  const optionsDate = metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null;
-  const optionFreshness = assessOptionConclusionFreshness({
-    stockDate: latestStockDate,
-    metricsDate: dataDate,
-    snapshotDate: optionsDate,
-    hasSnapshot: input.hasOptionSnapshot,
-  });
-  const exactOptionSnapshot = optionFreshness.isCurrent && optionFreshness.ageBusinessDays === 0;
-  const currentGammaRegime = optionFreshness.isCurrent ? input.gammaRegime : "UNAVAILABLE";
-  const stockHistory: StockDailyRecord[] = [...alignedStockHistoryRows].reverse().map((row) => ({
-    symbol,
-    tradeDate: dateToYmd(row.tradeDate),
-    open: row.close,
-    high: row.close,
-    low: row.close,
-    close: row.close,
-    adjustedClose: row.close,
-    volume: row.volume,
-    provider: row.provider === "LONGBRIDGE" ? "LONGBRIDGE" as const : "ONCLICKMEDIA" as const,
-  }));
-  const closes = stockHistory.map((row) => row.adjustedClose ?? row.close);
-  const ma50 = movingAverageSeries(closes, 50).at(-1) ?? null;
-  const ma100 = movingAverageSeries(closes, 100).at(-1) ?? null;
-  const ma200 = movingAverageSeries(closes, 200).at(-1) ?? null;
-  const rsi14 = wilderRsi(closes, 14);
-  const bollinger = summarizeBollingerBands(bollingerBandsSeries(closes, 20, 2));
-  const relativeVolume = latestRelativeVolume(stockHistory.map((row) => row.volume));
-  const previousClose = closes.at(-2) ?? null;
-  const maStructure = classifyMaStructure({ close, ma50, ma100, ma200 });
-  const trendBreakdown = calculateTrendScoreBreakdown({
-    close,
-    ma50,
-    ma100,
-    ma200,
-    rsi14,
-    previousClose,
-    relativeVolume: relativeVolume.relativeVolume,
-  });
-  const trendScore = trendBreakdown?.score ?? null;
-  const trendConfidence = calculateTrendConfidence({ ma50, ma100, ma200, historyCount });
-  const marketStatus = classifyMarketStatus({
-    close,
-    ma50,
-    ma100,
-    ma200,
-    rsi14,
-    previousClose,
-    relativeVolume: relativeVolume.relativeVolume,
-  });
-  const ivRank = percentileRank(input.ivHistory, optionFreshness.isCurrent ? numberOrNull(metrics.atmIv) : null, 1);
-  const ivPercentile = { ...ivRank, label: ivPercentileLabel(ivRank) };
-  const dayOverDay = calculateDayOverDayChange({
-    symbol,
-    currentTradeDate: metrics.tradeDate,
-    currentOptionsTradeDate: exactOptionSnapshot ? metrics.optionsTradeDate : null,
-    previousOptionsTradeDate: null,
-    currentTrendScore: trendScore,
-    currentClose: close,
-    currentOptionRows: [],
-    previousOptionRows: [],
-    currentStockHistory: stockHistory,
-  });
-  const attention = stockAttention({
-    close,
-    marketStatus,
-    optionFreshness,
-    gammaRegime: currentGammaRegime,
-    callWall: exactOptionSnapshot ? numberOrNull(metrics.callWall) : null,
-    putWall: exactOptionSnapshot ? numberOrNull(metrics.putWall) : null,
-    dayOverDay,
-  });
-
-  return {
-    symbol,
-    name: STOCKS[symbol].name,
-    shortName: STOCKS[symbol].shortName,
-    accent: STOCKS[symbol].accent,
-    assetType: STOCKS[symbol].assetType,
-    close,
-    dailyChangePct: numberOrNull(metrics.dailyChangePct),
-    trendScore,
-    trendBreakdown,
-    trendConfidence,
-    marketStatus,
-    gammaRegime: currentGammaRegime,
-    optionFreshness,
-    attention,
-    dayOverDay,
-    relativeVolume: relativeVolume.relativeVolume,
-    rsi14,
-    bollinger,
-    maStructure,
-    ivPercentile,
-    dataDate,
-  };
-}
-
-async function loadStockCards() {
-  const prisma = getPrisma();
-  const metricsRows = await prisma.stockMetrics.findMany({
-    where: { symbol: { in: SUPPORTED_SYMBOLS } },
-    orderBy: [{ symbol: "asc" }, { tradeDate: "desc" }],
-  });
-  const stockRows = await prisma.$queryRaw<Array<{
-    symbol: string;
-    tradeDate: Date;
-    close: number;
-    volume: number | null;
-    provider: string;
-  }>>`
-    WITH ranked_history AS (
-      SELECT symbol, trade_date,
-        COALESCE(adjusted_close, close)::float8 AS close,
-        volume::float8 AS volume,
-        provider,
-        ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY trade_date DESC) AS row_number
-      FROM stock_daily
-      WHERE symbol IN (${Prisma.join(SUPPORTED_SYMBOLS)})
-    )
-    SELECT symbol, trade_date AS "tradeDate", close, volume, provider
-    FROM ranked_history
-    WHERE row_number <= 271
-    ORDER BY symbol ASC, trade_date DESC
-  `;
-  const gammaRows = await prisma.$queryRaw<Array<{ symbol: string; tradeDate: Date; callGamma: number; putGamma: number }>>`
-    WITH latest_metrics AS (
-      SELECT DISTINCT ON (symbol) symbol, trade_date, options_trade_date
-      FROM stock_metrics
-      WHERE symbol IN (${Prisma.join(SUPPORTED_SYMBOLS)})
-        AND options_trade_date IS NOT NULL
-      ORDER BY symbol, trade_date DESC
-    )
-    SELECT options.symbol, metrics.trade_date AS "tradeDate",
-      SUM(CASE WHEN options.option_type = 'CALL'
-        THEN options.gamma * options.open_interest * options.contract_multiplier ELSE 0 END)::float8 AS "callGamma",
-      SUM(CASE WHEN options.option_type = 'PUT'
-        THEN options.gamma * options.open_interest * options.contract_multiplier ELSE 0 END)::float8 AS "putGamma"
-    FROM option_eod options
-    JOIN latest_metrics metrics ON metrics.symbol = options.symbol
-      AND metrics.options_trade_date = options.trade_date
-    WHERE options.expiration > metrics.trade_date
-      AND options.gamma > 0
-      AND options.open_interest > 0
-      AND options.contract_multiplier > 0
-    GROUP BY options.symbol, metrics.trade_date
-  `;
-  const optionSnapshotRows = await prisma.$queryRaw<Array<{ symbol: string; tradeDate: Date; recordCount: number }>>`
-    WITH latest_metrics AS (
-      SELECT DISTINCT ON (symbol) symbol, trade_date, options_trade_date
-      FROM stock_metrics
-      WHERE symbol IN (${Prisma.join(SUPPORTED_SYMBOLS)})
-      ORDER BY symbol, trade_date DESC
-    )
-    SELECT metrics.symbol, metrics.trade_date AS "tradeDate", COUNT(options.id)::int AS "recordCount"
-    FROM latest_metrics metrics
-    LEFT JOIN option_eod options ON options.symbol = metrics.symbol
-      AND options.trade_date = metrics.options_trade_date
-      AND options.expiration > metrics.trade_date
-    GROUP BY metrics.symbol, metrics.trade_date
-  `;
-  const metricsBySymbol = new Map<SupportedSymbol, StockMetrics>();
-  for (const row of metricsRows) {
-    const symbol = row.symbol as SupportedSymbol;
-    if (!metricsBySymbol.has(symbol)) metricsBySymbol.set(symbol, row);
-  }
-  const stockRowsBySymbol = new Map<SupportedSymbol, (typeof stockRows)[number][]>();
-  for (const row of stockRows) {
-    const symbol = row.symbol as SupportedSymbol;
-    const rows = stockRowsBySymbol.get(symbol) ?? [];
-    rows.push(row);
-    stockRowsBySymbol.set(symbol, rows);
-  }
-  const gammaRegimeBySymbolDate = new Map<string, "POSITIVE" | "NEGATIVE" | "NEUTRAL" | "UNAVAILABLE">();
-  for (const row of gammaRows) {
-    gammaRegimeBySymbolDate.set(`${row.symbol}|${dateToYmd(row.tradeDate)}`, calculateGammaExposureProxy([
-      { optionType: "CALL", gamma: Number(row.callGamma), openInterest: 1, contractMultiplier: 1 },
-      { optionType: "PUT", gamma: Number(row.putGamma), openInterest: 1, contractMultiplier: 1 },
-    ], 1).regime);
-  }
-  const symbolDatesWithCurrentOptionSnapshot = new Set(
-    optionSnapshotRows.filter((row) => row.recordCount > 0).map((row) => `${row.symbol}|${dateToYmd(row.tradeDate)}`),
+      provider: "LONGBRIDGE" as const,
+    })),
   );
-  const ivHistoryBySymbol = new Map<SupportedSymbol, number[]>();
-  for (const row of metricsRows) {
-    if (row.atmIv === null || !row.optionsTradeDate || row.optionsTradeDate.getTime() !== row.tradeDate.getTime()) continue;
-    const symbol = row.symbol as SupportedSymbol;
-    const values = ivHistoryBySymbol.get(symbol) ?? [];
-    values.unshift(Number(row.atmIv));
-    ivHistoryBySymbol.set(symbol, values);
-  }
-
-  return SUPPORTED_SYMBOLS.map((symbol) => {
-    const metrics = metricsBySymbol.get(symbol) ?? null;
-    const metricsKey = metrics ? `${symbol}|${dateToYmd(metrics.tradeDate)}` : null;
-    return buildStockCard({
-      symbol,
-      metrics,
-      stockHistoryRows: stockRowsBySymbol.get(symbol) ?? [],
-      ivHistory: ivHistoryBySymbol.get(symbol) ?? [],
-      gammaRegime: metricsKey ? gammaRegimeBySymbolDate.get(metricsKey) ?? "UNAVAILABLE" : "UNAVAILABLE",
-      hasOptionSnapshot: metricsKey ? symbolDatesWithCurrentOptionSnapshot.has(metricsKey) : false,
-    });
-  });
 }
-
-// The homepage is often kept open while the post-close import finishes. Keep
-// this cache short so a client refresh cannot remain behind a freshly loaded
-// detail page for several minutes.
-const getCachedStockCards = unstable_cache(loadStockCards, ["stock-cards-v24"], { revalidate: 30, tags: ["stock-dashboard"] });
-
-export async function getStockCards() {
-  return getCachedStockCards();
-}
-
-async function loadStockDashboardBundle(symbol: SupportedSymbol) {
-  const prisma = getPrisma();
-  const metrics = await prisma.stockMetrics.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" } });
-  if (!metrics) return null;
-
-  const chartStartDate = addDays(dateToYmd(metrics.tradeDate), -190);
-  const calculationStartDate = addDays(dateToYmd(metrics.tradeDate), -450);
-  const [calculationHistory, allOptionRows, optionDateGroups, volumeProfile, latestSyncRun, latestStockRow] = await Promise.all([
-    prisma.stockDaily.findMany({
-      where: { symbol, tradeDate: { gte: new Date(`${calculationStartDate}T00:00:00.000Z`), lte: metrics.tradeDate } },
-      orderBy: { tradeDate: "asc" },
-    }),
-    metrics.optionsTradeDate
-      ? prisma.optionEod.findMany({
-          where: { symbol, tradeDate: metrics.optionsTradeDate, expiration: { gt: metrics.tradeDate } },
-          orderBy: [{ expiration: "asc" }, { strike: "asc" }],
-        })
-      : Promise.resolve([]),
-    prisma.optionEod.groupBy({
-      by: ["tradeDate"],
-      where: { symbol },
-      orderBy: { tradeDate: "desc" },
-      take: 16,
-    }),
-    getCachedVolumeProfile(symbol, dateToYmd(metrics.tradeDate)),
-    prisma.syncRun.findFirst({ orderBy: { startedAt: "desc" }, select: { errorMessage: true } }),
-    prisma.stockDaily.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" }, select: { tradeDate: true } }),
-  ]);
-  const stockDate = dateToYmd(metrics.tradeDate);
-  const latestStockDate = latestStockRow ? dateToYmd(latestStockRow.tradeDate) : stockDate;
-  const optionsSnapshotDate = metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : null;
-  const optionFreshness = assessOptionConclusionFreshness({
-    stockDate: latestStockDate,
-    metricsDate: stockDate,
-    snapshotDate: optionsSnapshotDate,
-    hasSnapshot: allOptionRows.length > 0,
-  });
-  const currentOptionRows = optionFreshness.isCurrent ? allOptionRows : [];
-  const exactOptionSnapshot = optionFreshness.isCurrent && optionFreshness.ageBusinessDays === 0;
-  const optionHistoryDates = optionDateGroups.map((row) => row.tradeDate);
-  const optionHistoryRows = optionHistoryDates.length
-    ? await prisma.optionEod.findMany({
-        where: { symbol, tradeDate: { in: optionHistoryDates } },
-        orderBy: [{ tradeDate: "asc" }, { expiration: "asc" }, { strike: "asc" }],
-      })
-    : [];
-  const closes = calculationHistory.map((row) => Number(row.adjustedClose ?? row.close));
-  const stockResearchHistory: StockDailyRecord[] = calculationHistory.map((row) => ({
-    symbol,
-    tradeDate: dateToYmd(row.tradeDate),
-    open: Number(row.open),
-    high: Number(row.high),
-    low: Number(row.low),
-    close: Number(row.close),
-    adjustedClose: numberOrNull(row.adjustedClose),
-    volume: row.volume === null ? null : Number(row.volume),
-    provider: row.provider === "LONGBRIDGE" ? "LONGBRIDGE" as const : "ONCLICKMEDIA" as const,
-  }));
-  const ma50 = movingAverageSeries(closes, 50);
-  const ma100 = movingAverageSeries(closes, 100);
-  const ma200 = movingAverageSeries(closes, 200);
-  const rsi14Series = closes.map((_, index) => wilderRsi(closes.slice(0, index + 1), 14));
-  const bollingerSeries = bollingerBandsSeries(closes, 20, 2);
-  const volumeSeries = relativeVolumeSeries(calculationHistory.map((row) => row.volume === null ? null : Number(row.volume)));
-  const close = Number(metrics.close);
-  const currentRsi14 = rsi14Series.at(-1) ?? null;
-  const currentRv20 = numberOrNull(metrics.rv20);
-  const currentMa50 = ma50.at(-1) ?? null;
-  const currentMa100 = ma100.at(-1) ?? null;
-  const currentMa200 = ma200.at(-1) ?? null;
-  const currentBollinger = summarizeBollingerBands(bollingerSeries);
-  const currentRelativeVolume = volumeSeries.at(-1)?.relativeVolume ?? null;
-  const optionReferenceRow = optionsSnapshotDate
-    ? calculationHistory.find((row) => dateToYmd(row.tradeDate) === optionsSnapshotDate)
-    : null;
-  const optionReferenceClose = optionReferenceRow
-    ? Number(optionReferenceRow.adjustedClose ?? optionReferenceRow.close)
-    : close;
-  const trendBreakdown = calculateTrendScoreBreakdown({
-    close,
-    ma50: currentMa50,
-    ma100: currentMa100,
-    ma200: currentMa200,
-    rsi14: currentRsi14,
-    previousClose: closes.at(-2) ?? null,
-    relativeVolume: currentRelativeVolume,
-  });
-  const trendScore = trendBreakdown?.score ?? null;
-  const marketStatus = classifyMarketStatus({
-    close,
-    ma50: currentMa50,
-    ma100: currentMa100,
-    ma200: currentMa200,
-    rsi14: currentRsi14,
-    previousClose: closes.at(-2) ?? null,
-    relativeVolume: currentRelativeVolume,
-  });
-  const dayOverDay = await loadDayOverDayChange({
-    symbol,
-    currentTradeDate: metrics.tradeDate,
-    currentOptionsTradeDate: exactOptionSnapshot ? metrics.optionsTradeDate : null,
-    currentTrendScore: trendScore,
-    currentClose: close,
-    currentOptionRows: exactOptionSnapshot ? currentOptionRows : [],
-    currentStockHistory: stockResearchHistory,
-  });
-  const trendConfidence = calculateTrendConfidence({ ma50: currentMa50, ma100: currentMa100, ma200: currentMa200, historyCount: calculationHistory.length });
-  const historicalPositions = buildHistoricalPositions(closes, { rsi14: currentRsi14, rv20: currentRv20, ma50: currentMa50 });
-  const optionWindows = Object.keys(OPTION_WINDOW_LIMITS) as OptionWindow[];
-  const optionWindowCounts = Object.fromEntries(optionWindows.map((window) => {
-    const limit = OPTION_WINDOW_LIMITS[window];
-    const count = limit === null || !metrics.optionsTradeDate
-      ? currentOptionRows.length
-      : currentOptionRows.filter((row) => remainingDays(metrics.optionsTradeDate!, row.expiration) <= limit).length;
-    return [window, count];
-  })) as Record<OptionWindow, number>;
-  const priceHistory = calculationHistory.map((row, index) => {
-    const rawClose = Number(row.close);
-    const adjustedClose = numberOrNull(row.adjustedClose);
-    const adjustmentFactor = adjustedClose !== null && rawClose > 0 ? adjustedClose / rawClose : 1;
-    return {
-      date: dateToYmd(row.tradeDate),
-      open: Number(row.open) * adjustmentFactor,
-      high: Number(row.high) * adjustmentFactor,
-      low: Number(row.low) * adjustmentFactor,
-      close: adjustedClose ?? rawClose,
-      ma50: ma50[index],
-      ma100: ma100[index],
-      ma200: ma200[index],
-      rsi14: rsi14Series[index],
-      bollingerMiddle: bollingerSeries[index].middle,
-      bollingerUpper: bollingerSeries[index].upper,
-      bollingerLower: bollingerSeries[index].lower,
-      bollingerPercentB: bollingerSeries[index].percentB,
-      bollingerBandwidth: bollingerSeries[index].bandwidth,
-      volume: volumeSeries[index].volume,
-      volumeAverage20: volumeSeries[index].averageVolume,
-      relativeVolume: volumeSeries[index].relativeVolume,
-    };
-  }).filter((point) => point.date >= chartStartDate);
-  const optionSnapshots = optionHistoryDates
-    .map((tradeDate) => ({
-      tradeDate: dateToYmd(tradeDate),
-      records: optionHistoryRows.filter((row) => row.tradeDate.getTime() === tradeDate.getTime()).map(toOptionRecord),
-    }))
-    .sort((a, b) => a.tradeDate.localeCompare(b.tradeDate));
-  const symbolSyncWarnings = (latestSyncRun?.errorMessage?.split("\n") ?? [])
-    .filter((line) => line.startsWith(`${symbol}: `))
-    .map((line) => line.slice(symbol.length + 2));
-  const optionDataQuality = assessOptionDataQuality(allOptionRows.map(toOptionRecord), {
-    expectedSymbol: symbol,
-    warnings: symbolSyncWarnings,
-    sourceCoverage: "LIMITED_NEAR_MONEY",
-  });
-
-  const dashboards = optionWindows.map((optionWindow) => {
-    const optionWindowLimit = OPTION_WINDOW_LIMITS[optionWindow];
-    const optionRows = optionWindowLimit === null || !metrics.optionsTradeDate
-      ? currentOptionRows
-      : currentOptionRows.filter((row) => remainingDays(metrics.optionsTradeDate!, row.expiration) <= optionWindowLimit);
-    const optionRecords = optionRows.map(toOptionRecord);
-    const previousSnapshot = optionFreshness.isCurrent
-      ? optionSnapshots.filter((snapshot) => snapshot.tradeDate < (metrics.optionsTradeDate ? dateToYmd(metrics.optionsTradeDate) : "")).at(-1)
-      : undefined;
-    const previousOptionRecords = (previousSnapshot?.records ?? []).filter((row) => {
-      if (optionWindowLimit === null || !previousSnapshot) return true;
-      return Math.ceil((new Date(`${row.expiration}T00:00:00.000Z`).getTime() - new Date(`${previousSnapshot.tradeDate}T00:00:00.000Z`).getTime()) / 86_400_000) <= optionWindowLimit;
-    });
-    // A bounded lagged chain is calculated against its own stock close. This
-    // keeps ATM selection and premium-derived ranges from mixing two dates.
-    const pricingMetrics = calculateOptionMetrics(optionRecords, optionReferenceClose);
-    const gammaExposure = calculateGammaExposureProxy(optionRows.map((row) => ({
-      optionType: row.optionType,
-      gamma: numberOrNull(row.gamma),
-      openInterest: row.openInterest === null ? null : Number(row.openInterest),
-      contractMultiplier: row.contractMultiplier,
-    })), optionReferenceClose);
-    const oi = new Map<number, { strike: number; callOi: number; putOi: number }>();
-    for (const row of optionRows) {
-      const strike = Number(row.strike);
-      if (strike < optionReferenceClose * 0.75 || strike > optionReferenceClose * 1.25) continue;
-      const point = oi.get(strike) ?? { strike, callOi: 0, putOi: 0 };
-      const value = row.openInterest === null ? 0 : Number(row.openInterest);
-      if (row.optionType === "CALL") point.callOi += value;
-      else point.putOi += value;
-      oi.set(strike, point);
-    }
-    const oiChange = calculateOiChange(optionRecords, previousOptionRecords, optionReferenceClose);
-    const optionResearchHistory = buildOptionResearchHistory(optionSnapshots.map((snapshot) => ({
-      tradeDate: snapshot.tradeDate,
-      records: optionWindowLimit === null
-        ? snapshot.records
-        : snapshot.records.filter((row) => Math.ceil((new Date(`${row.expiration}T00:00:00.000Z`).getTime() - new Date(`${snapshot.tradeDate}T00:00:00.000Z`).getTime()) / 86_400_000) <= optionWindowLimit),
-    })), stockResearchHistory);
-    const wallProfiles = {
-      call: addWallPersistence(calculateWallProfile(optionRecords, "CALL", optionReferenceClose), optionResearchHistory.points, "callWall"),
-      put: addWallPersistence(calculateWallProfile(optionRecords, "PUT", optionReferenceClose), optionResearchHistory.points, "putWall"),
-    };
-    const ivTermStructure = calculateIvTermStructure(optionRecords, optionReferenceClose);
-    const ivPercentile = calculateIvPercentile(optionResearchHistory.points, pricingMetrics.atmIv);
-    const ivSkew = calculateIvSkew(optionRecords, optionReferenceClose);
-
-    const dashboard = {
-      symbol,
-      name: STOCKS[symbol].name,
-      accent: STOCKS[symbol].accent,
-      assetType: STOCKS[symbol].assetType,
-      stockDate,
-      stockProviders: [...new Set(calculationHistory.map((row) => row.provider))].sort(),
-      optionsSnapshotDate,
-      optionsDate: optionRows.length && optionFreshness.isCurrent ? optionsSnapshotDate : null,
-      optionFreshness,
-      optionsExpiration: pricingMetrics.optionsExpiration,
-      optionWindow,
-      optionWindowLabel: OPTION_WINDOW_LABELS[optionWindow],
-      optionWindowCounts,
-      quote: {
-        close,
-        dailyChange: numberOrNull(metrics.dailyChange),
-        dailyChangePct: numberOrNull(metrics.dailyChangePct),
-        marketStatus,
-      },
-      trend: {
-        ma50: currentMa50,
-        ma100: currentMa100,
-        ma200: currentMa200,
-        rsi14: currentRsi14,
-        bollinger: currentBollinger,
-        rv20: currentRv20,
-        relativeVolume: currentRelativeVolume,
-        averageVolume20: volumeSeries.at(-1)?.averageVolume ?? null,
-        score: trendScore,
-        breakdown: trendBreakdown,
-        confidence: trendConfidence,
-        historyCount: calculationHistory.length,
-      },
-      options: {
-        expectedMove: pricingMetrics.expectedMove,
-        expectedMovePct: pricingMetrics.expectedMovePct,
-        expectedUpper: pricingMetrics.expectedUpper,
-        expectedLower: pricingMetrics.expectedLower,
-        putCallOi: putCallOpenInterest(optionRecords),
-        maxPain: pricingMetrics.maxPain,
-        callWall: aggregateOptionWall(optionRecords, "CALL", close),
-        putWall: aggregateOptionWall(optionRecords, "PUT", close),
-        atmIv: pricingMetrics.atmIv,
-        ivPercentile,
-        ivTermStructure,
-        ivSkew,
-        wallProfiles,
-        gammaExposure,
-      },
-      historicalPositions,
-      volumeProfile,
-      optionResearchHistory,
-      dataQuality: { options: optionDataQuality },
-      dayOverDay,
-      priceHistory,
-      optionOpenInterest: [...oi.values()].sort((a, b) => a.strike - b.strike),
-      optionOpenInterestChange: oiChange,
-    };
-    return [optionWindow, dashboard] as const;
-  });
-
-  return Object.fromEntries(dashboards) as Record<OptionWindow, (typeof dashboards)[number][1]>;
-}
-
-const getCachedStockDashboardBundle = unstable_cache(
-  loadStockDashboardBundle,
-  ["stock-dashboard-bundle-v20"],
+const cachedDashboard = unstable_cache(
+  loadStockDashboard,
+  ["longbridge-dashboard-v1"],
   { revalidate: 300, tags: ["stock-dashboard"] },
 );
+export const getStockDashboard = (symbol: SupportedSymbol) =>
+  cachedDashboard(symbol);
+export type StockDashboard = NonNullable<
+  Awaited<ReturnType<typeof getStockDashboard>>
+>;
 
-export async function getStockDashboard(symbol: SupportedSymbol, requestedWindow?: string | null) {
-  const optionWindow = normalizeOptionWindow(requestedWindow);
-  const bundle = await getCachedStockDashboardBundle(symbol);
-  return bundle?.[optionWindow] ?? null;
+export async function getStockCards() {
+  // One query per symbol, reused by detail pages through the same cache.
+  const cards = [];
+  for (let index = 0; index < SUPPORTED_SYMBOLS.length; index += 4) {
+    const batch = await Promise.all(
+      SUPPORTED_SYMBOLS.slice(index, index + 4).map(async (symbol) => {
+        const dashboard = await getStockDashboard(symbol);
+        return {
+          symbol,
+          ...STOCKS[symbol],
+          close: dashboard?.quote.close ?? null,
+          dailyChangePct: dashboard?.quote.dailyChangePct ?? null,
+          dataDate: dashboard?.stockDate ?? null,
+          trendScore: dashboard?.trend.score ?? null,
+          trendBreakdown: dashboard?.trend.breakdown ?? null,
+          trendConfidence: dashboard?.trend.confidence ?? {
+            level: "LOW" as const,
+            label: "低",
+            reason: "等待长桥数据",
+          },
+          relativeVolume: dashboard?.trend.relativeVolume ?? null,
+          rsi14: dashboard?.trend.rsi14 ?? null,
+          bollinger: dashboard?.trend.bollinger ?? null,
+          marketStatus: dashboard?.quote.marketStatus ?? "INSUFFICIENT_DATA",
+        };
+      }),
+    );
+    cards.push(...batch);
+  }
+  return cards;
 }
-
-export async function getDebugSnapshot() {
-  const prisma = getPrisma();
-  return Promise.all(SUPPORTED_SYMBOLS.map(async (symbol) => {
-    const [stockCount, optionCount, latestStock, latestOption, latestMetrics, lastSync] = await Promise.all([
-      prisma.stockDaily.count({ where: { symbol } }),
-      prisma.optionEod.count({ where: { symbol } }),
-      prisma.stockDaily.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" }, select: { tradeDate: true } }),
-      prisma.optionEod.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" }, select: { tradeDate: true } }),
-      prisma.stockMetrics.findFirst({ where: { symbol }, orderBy: { tradeDate: "desc" }, select: { tradeDate: true } }),
-      prisma.syncRun.findFirst({ where: { symbols: { has: symbol } }, orderBy: { startedAt: "desc" } }),
-    ]);
-    return {
-      symbol,
-      latestStockDate: latestStock ? dateToYmd(latestStock.tradeDate) : null,
-      stockRowCount: stockCount,
-      latestOptionDate: latestOption ? dateToYmd(latestOption.tradeDate) : null,
-      optionContractCount: optionCount,
-      latestMetricsDate: latestMetrics ? dateToYmd(latestMetrics.tradeDate) : null,
-      lastSyncStatus: lastSync?.status ?? null,
-      lastSyncTime: lastSync?.completedAt?.toISOString() ?? lastSync?.startedAt.toISOString() ?? null,
-    };
-  }));
-}
+export type StockCard = Awaited<ReturnType<typeof getStockCards>>[number];

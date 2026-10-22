@@ -14,7 +14,7 @@ export function Header() {
             {SUPPORTED_SYMBOLS.map((symbol) => <Link href={`/stocks/${symbol}`} key={symbol}><b>{symbol}</b><span>{STOCKS[symbol].shortName}</span></Link>)}
           </div>
         </details>
-        <span className="source-pill">数据源 · OnclickMedia + 长桥</span>
+        <span className="source-pill">数据源 · 长桥证券</span>
       </nav>
     </header>
   );
@@ -25,7 +25,7 @@ export function Footer() {
     <footer className="disclaimer">
       <div className="footer-copy">
         <span>邀请测试 · 页面根据日终数据整理，仅供研究参考，不构成投资建议。</span>
-        <span>数据源：OnclickMedia + 长桥历史补充</span>
+        <span>数据源：长桥证券</span>
       </div>
       <nav className="footer-links" aria-label="产品说明">
         <Link href="/methodology">数据与方法</Link>

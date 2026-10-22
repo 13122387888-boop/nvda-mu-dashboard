@@ -1,192 +1,49 @@
-# 收盘雷达 / EOD Radar
+# EOD Radar
 
-An invitation-beta dashboard for a configuration-driven US equity and exchange-traded-product watchlist. The current 47-symbol pool covers **NVDA, MU, SNDK, MSFT, TSLA, DRAM, SKHY, TSM, AAPL, AVGO, ORCL, SOXX, QQQ, IBIT, GLD, XLF, XLE, XLU, XLV, MVRL, SPCX, CRCL, INTC, GOOG, AMD, IGV, UVIX, META, AMZN, ASML, WDC, STX, PLTR, XBI, BRK.B, LLY, GLW, COHR, AAOI, LITE, BE, MRVL, IWM, SPY, USO, XLI, and BLOK**. It stores end-of-day stock and option-chain data in Supabase PostgreSQL, calculates a deliberately small set of objective indicators, and serves the same dashboard payload to the Next.js web UI and versioned read-only APIs.
+中文美股日终研究看板。行情唯一来源为长桥证券，代码列表维护在 src/lib/stocks.ts。
 
-This is research software, not a real-time feed or investment-advice product.
+## 数据流
 
-## Architecture
+Longbridge CLI / 插件导出 → 整批校验 → Supabase PostgreSQL → 同一套指标计算 → 首页、详情、分享页、只读 API。
 
-```text
-Longbridge plugin → Codex morning task → validated JSON importer ─┐
-                                                                  ├→ Supabase PostgreSQL → Indicators
-OnclickMedia fallback stock + option sync → Vercel Cron ──────────┘           ↓
-                                                       Next.js UI ← Dashboard service → /api/v1
-```
+保留日K、成交量、MA50/100/200、RSI14、BOLL(20,2)、RVOL20、RV20与趋势评分。
+页面及 API 只读取 provider=LONGBRIDGE 的行。旧来源及其分析模块已移除。
+数据库旧表和旧字段为向后兼容暂时保留，不参与页面读取；不要在此清理中执行破坏性迁移。
 
-- Next.js 16 App Router, TypeScript, Tailwind CSS
-- Prisma ORM 7 with the PostgreSQL driver adapter
-- Supabase Transaction Pooler at runtime; Session Pooler/direct URL for migrations
-- Lightweight Charts for price and moving-average history
-- Vitest for indicator and provider-adapter tests
+## 初始化与更新
 
-## OnclickMedia integration
+安装依赖并按 .env.example 配置数据库，安装可用的 longbridge CLI。
+先执行 npm run db:generate，然后 npm run sync:bootstrap 拉取最多520根真实日线。
+npm run sync:data 刷新最近30根日线；npm run backfill:longbridge 与首次完整采集共用入口。
+采集器按纽约时间和美股交易日历选择完整收盘日；常规交易时段、价格前复权；最多4并发、连接故障最多重试2次。
+所有代码校验通过后才进入数据库事务；任一股票缺失、日期未更新或OHLCV非法均拒绝导入。
+数据库事务会一起更新全部股票与指标；失败回滚，sync_run保留失败记录。
+运行 npm run audit:data 核对长桥覆盖、股票日期与指标日期。
 
-The adapter uses the current official public endpoints documented at [OnclickMedia API Documentation](https://www.onclickmedia.com/Documentation):
+插件输出也可以导入：npm run import:longbridge-plugin -- path/to/candles.json。
+此入口与 CLI 共用校验及事务导入，格式为 adjustment=forward 和 series=[{symbol,candles}]。
 
-- Adjusted daily OHLCV: `GET https://api.onclickmedia.com/stock-data/v2/adj/`
-  - Parameters: `ticker`, `from`, `to`, `extended=false`, `bar_size=1d`, `data=ohlcv`, `output=json`, optional `apikey`.
-- Stock availability: `GET https://api.onclickmedia.com/stock-data/v2/list/`
-  - Parameters: `ticker`, `list=date`.
-- Option availability: `GET https://api.onclickmedia.com/options/`
-  - Parameters: `ticker`, `list=date`.
-- Latest accessible EOD chain: `GET https://api.onclickmedia.com/options/`
-  - Parameters: `ticker`, `date`, `data=options_all`, `output=json-v1`, optional `apikey`.
+## 执行环境
 
-The provider is called only through `MarketDataProvider`. The adapter converts `call`/`put` to `CALL`/`PUT`, validates every number and market date, keeps nullable quote/Greek fields, stores the provider `contract_id`, and normalizes percentage-form IV (for example `45`) to decimal IV (`0.45`). Current API responses already use decimal IV in the nested `greeks` object.
+长桥 CLI 在安装它的本机或服务器运行；Vercel函数不执行CLI。
+已移除原托管平台的旧行情定时拉取配置，防止继续调用废弃数据源。
+使用现有本机任务调用 npm run sync:data；电脑必须保持唤醒和联网。
+若迁移到常驻服务器，需要在该环境安装CLI并配置相应访问权限。
+更新后页面缓存最多5分钟过期。POST /api/cron/sync 仅用于带 CRON_SECRET 的缓存刷新，不采集行情。
 
-The public/free API needs no key. Its documented option-chain response is limited to the closest-to-the-money strikes per expiration and shorter history; a level-2 key is needed for the full database. Any coverage warning is recorded on the sync run. OnclickMedia remains the automated daily options source and a fallback stock source. Longbridge supplies the faster authoritative stock-close path: the connected plugin returns forward-adjusted regular-session OHLCV, and the importer validates the complete batch before writing it. A same-day OnclickMedia refresh cannot replace a stored Longbridge close. The optional CLI backfill remains available for trusted one-off history repairs. Stored rows retain their source label. OnclickMedia v2 daily bars are interval-end stamped at midnight on the following calendar date; the adapter maps that label back to the US market trade date and tests this behavior.
+## 页面与 API
 
-## 1. Create a Supabase project
+/ 首页：趋势分与RSI分布、紧凑清单、单选筛选和分数组成。
+/stocks/CODE 详情：K线、均线/BOLL切换、成交量、近期强弱和计算口径。
+/stocks/CODE/snapshot 简洁研究分享链接。
+/api/v1/stocks 和 /api/v1/stocks/CODE/dashboard 为长桥数据派生的只读接口。
+/api/health 核对长桥数据日期与覆盖；/debug 仅 ENABLE_DEBUG_PAGE=true 时开放。
 
-1. Create a project in the [Supabase dashboard](https://supabase.com/dashboard).
-2. Open **Connect → ORMs → Prisma**.
-3. Copy the Transaction Pooler URL for `DATABASE_URL`. Keep `pgbouncer=true` if Supabase includes it.
-4. Copy the Session Pooler or direct connection URL for `DIRECT_URL`. Prisma migrations use this URL through `prisma.config.ts`.
-5. Replace only the local placeholders in `.env.local`; never commit the password or URLs.
+## 验证
 
-Example shape only:
-
-```env
-DATABASE_URL=postgresql://USER:PASSWORD@POOLER_HOST:6543/postgres?pgbouncer=true
-DIRECT_URL=postgresql://USER:PASSWORD@SESSION_OR_DIRECT_HOST:5432/postgres
-ONCLICKMEDIA_API_KEY=
-CRON_SECRET=replace-with-a-long-random-value
-ENABLE_DEBUG_PAGE=false
-NEXT_PUBLIC_SITE_URL=http://localhost:3000
-```
-
-## 2. Local initialization
-
-macOS/Linux:
-
-```bash
-npm install
-cp .env.example .env.local
-npm run db:generate
-npm run db:migrate -- --name init
-npm run sync:bootstrap
-npm run dev
-```
-
-Windows PowerShell:
-
-```powershell
-npm install
-Copy-Item .env.example .env.local
-npm run db:generate
-npm run db:migrate -- --name init
-npm run sync:bootstrap
-npm run dev
-```
-
-The committed initial migration creates `stock_daily`, `option_eod`, `stock_metrics`, and `sync_run`. Bootstrap attempts roughly 450 calendar days so the adjusted stock dataset can supply at least about 260 market sessions; provider range limits are handled in chunks. It imports only the latest accessible EOD option chain.
-
-## 3. Daily synchronization
-
-```bash
-npm run sync:data
-```
-
-Both commands are idempotent. They use unique keys, bulk conflict-safe inserts, and recent-bar upserts; isolate failures by symbol; preserve successful symbols when another fails; and write a `SUCCESS`, `PARTIAL`, or `FAILED` `sync_run`. Logs never print connection URLs or API keys. Run `npm run audit:data` to verify yearly coverage and latest stock, option, and metric dates.
-
-For a verified one-off current-year history repair on a trusted machine with the Longbridge CLI configured:
-
-```bash
-npm run backfill:longbridge -- all 2026-01-01 2026-12-31
-npm run sync:data
-```
-
-The backfill inserts missing dates, refreshes the most recent eight sessions, recalculates the latest metrics, retries transient CLI failures, and verifies that all selected symbols and metrics share one latest trade date. `SKHY` began US trading in July 2026, so its long-term averages and trend score remain unavailable until enough genuine sessions accumulate.
-
-The Codex heartbeat named **EOD Radar 美股收盘更新** runs at **07:30 and 08:30 Asia/Shanghai, Tuesday through Saturday**. It reads the configured symbols, asks the connected Longbridge plugin for the latest five forward-adjusted regular-session daily bars, limits concurrency, retries transient connector failures, and writes only after every symbol passes validation. The second idempotent attempt protects the 09:00 target from a delayed publication or temporary connector error. Options are intentionally not required for the morning stock-close check because their free EOD archive can publish later.
-
-The plugin bridge accepts a JSON file produced by that task:
-
-```bash
-npm run import:longbridge-plugin -- path/to/longbridge-daily.json
-```
-
-This heartbeat uses the local Codex execution environment and connected plugin session. The computer must be awake and connected for it to run. A future always-on cloud job would require Longbridge OpenAPI credentials; the plugin connection itself is not an exportable server credential.
-
-Vercel Cron separately calls `GET /api/cron/sync` at `05:30 UTC` from Tuesday through Saturday to fill the OnclickMedia option snapshot when it becomes available. It requires:
-
-```http
-Authorization: Bearer <CRON_SECRET>
-```
-
-Cron runs incremental sync only. Bootstrap remains a one-time manual operation. Stock and option dates are kept independent. When the option archive trails the stock close, the UI may display the latest option snapshot only when it is at most one weekday behind, labels that snapshot date separately, and never uses it for current-day option changes or attention alerts. Older snapshots remain hidden from current conclusions.
-
-## 4. APIs and pages
-
-- `/` — configurable stock scanner with filters, trend sorting, and a trend/IV/Gamma structure map
-- `/stocks/<SYMBOL>` — EOD dashboard for each configured symbol
-- `/api/v1/stocks` — tracked-stock summaries
-- `/api/v1/stocks/<SYMBOL>/dashboard` — reusable dashboard payload
-- `/api/health` — database connectivity and latest sync time
-- `/debug` — diagnostics only when `ENABLE_DEBUG_PAGE=true`
-- `/methodology` — data sources, indicator scope, freshness, and known limitations
-- `/privacy` and `/terms` — invitation-beta privacy and usage notices
-
-Symbols outside `src/lib/stocks.ts` return 404. The public APIs do not expose raw full chains, provider proxying, database queries, CSV, or bulk exports.
-
-The dashboard also derives MA50/100/200 trend structure, Wilder RSI14, BOLL(20,2) price position and bandwidth state, 20-day relative volume, evidence-state summaries, 10-snapshot wall migration, expected-range and wall-continuation review, IV percentile/term structure, and 25-delta IV skew. BOLL uses adjusted closes and population standard deviation; its bandwidth state is ranked against up to 252 valid observations. IV skew filters zero/extreme IV, requires open interest, uses the liquid expiration closest to 30 days (preferably at least 7 days), and reports `25Δ Put IV − 25Δ Call IV`; these are context measures rather than directional forecasts.
-
-Stock detail pages use one beginner-readable layer: plain-language metric explanations, a three-step “what to read now” path, and evidence wording that avoids implying buy/sell support. Stock and option source dates remain visible as neutral scope tags; different snapshot dates are not promoted as a warning.
-
-## 5. Validation
-
-```bash
-npm run lint
 npm run typecheck
+npm run lint
 npm run test
 npm run build
-```
 
-Tests cover MA50/100/200 (while retaining the legacy MA20 sync field), the 0–100 trend score, Wilder RSI14, BOLL(20,2), RVOL20, RV20, insufficient history, expected move and pricing fallback, put/call OI, max pain, option walls, ATM IV, 25-delta IV skew, empty/missing contracts, field/date/side/IV mapping, null handling, and invalid-number filtering.
-
-## 6. Private GitHub repository
-
-Create an empty **private** repository yourself, then run:
-
-```bash
-git status
-git add .
-git commit -m "Initial NVDA and MU dashboard MVP"
-git branch -M main
-git remote add origin <YOUR_PRIVATE_REPOSITORY_URL>
-git push -u origin main
-```
-
-No push or public repository is created automatically. If a remote already exists, inspect it with `git remote -v` instead of replacing it.
-
-## 7. Vercel deployment
-
-1. Import the private GitHub repository into Vercel.
-2. Add `DATABASE_URL`, `DIRECT_URL`, `ONCLICKMEDIA_API_KEY` (optional), `CRON_SECRET`, `ENABLE_DEBUG_PAGE=false`, and `NEXT_PUBLIC_SITE_URL`. Set `NEXT_PUBLIC_SITE_URL` to the canonical HTTPS origin used in links and metadata; changing the custom domain later should only require updating this value and redeploying.
-3. From a trusted local/CI environment with `DIRECT_URL`, apply the committed schema:
-
-   ```bash
-   npm run db:deploy
-   ```
-
-4. Deploy the Next.js project. Build does not call Supabase or either market-data source.
-5. Before launch, run `npm run sync:bootstrap` once against the production Supabase project.
-6. Verify `/api/health`, at least two configured stock pages, and one authorized Cron call.
-
-Vercel's default domain can be used during invitation testing. Before a wider release, bind a neutral custom domain, update `NEXT_PUBLIC_SITE_URL`, redeploy, and verify the site without a proxy on the target networks. Runtime reads use Vercel and Supabase; option synchronization uses OnclickMedia, while the current morning stock-close path uses the connected Longbridge plugin through the local Codex task.
-
-## Troubleshooting
-
-- **Supabase connection fails:** confirm `DATABASE_URL` is the Transaction Pooler URL, URL-encode special password characters, allow IPv4-compatible pooling, and check the project is awake.
-- **Prisma migration fails:** confirm `DIRECT_URL` uses the Session Pooler/direct host rather than Transaction Pooler, then run `npm run db:deploy` for production migrations.
-- **OnclickMedia returns no stock data:** check `stock-data/v2/list/?ticker=...&list=date`; adjusted v2 availability can lag the unadjusted endpoint.
-- **MA200 is empty:** fewer than 200 valid adjusted closes were stored. Re-run bootstrap and inspect `/debug` locally.
-- **Option chain lacks Greeks:** those nullable fields remain `NULL`; contracts are not discarded.
-- **Cron returns 401:** Vercel's Authorization bearer value does not match `CRON_SECRET`.
-- **Morning stock task does not run:** confirm the computer is awake, Codex can access the project, and the Longbridge plugin remains connected. The second 08:30 run retries transient connector failures.
-- **Page shows an old date:** EOD providers can lag on weekends, holidays, or before publication. The UI displays stock date, option date, and expiration independently.
-- **Vercel build fails:** run all four validation commands locally; do not place database calls in module top-level code or build-time generation.
-
-## Disclaimer
-
-EOD data for research and product validation only. Not investment advice. Data sources: OnclickMedia and Longbridge.
+仅供研究，不构成投资建议。数据来源：长桥证券。

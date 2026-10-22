@@ -21,7 +21,7 @@ function records(count: number): StockDailyRecord[] {
     close: index + 1,
     adjustedClose: index + 1,
     volume: 100,
-    provider: "ONCLICKMEDIA",
+    provider: "LONGBRIDGE",
   }));
 }
 

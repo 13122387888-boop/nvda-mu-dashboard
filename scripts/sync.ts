@@ -1,18 +1,17 @@
 import nextEnv from "@next/env";
-import { runSync } from "../src/lib/sync/sync-service";
-
-const { loadEnvConfig } = nextEnv;
-loadEnvConfig(process.cwd());
-
-const mode = process.argv[2] === "bootstrap" ? "bootstrap" : "incremental";
-
+import { getPrisma } from "@/lib/db/prisma";
+import { collectLongbridgeBatch } from "@/lib/providers/longbridge";
+import { importLongbridgeCandleBatch } from "@/lib/sync/longbridge-stock-import";
+import { sanitizeError } from "@/lib/env";
+nextEnv.loadEnvConfig(process.cwd());
 try {
-  console.info("[SYNC] Trigger: MANUAL");
-  const summary = await runSync({ triggerType: "MANUAL", mode });
-  console.info(`[DONE] status=${summary.status}`);
-  console.info(JSON.stringify(summary, null, 2));
-  if (summary.status === "FAILED") process.exitCode = 1;
+  const bootstrap = process.argv[2] === "bootstrap";
+  const batch = await collectLongbridgeBatch(bootstrap ? 520 : 30);
+  const result = await importLongbridgeCandleBatch(batch);
+  console.log("[SYNC] Longbridge", result);
 } catch (error) {
-  console.error(`[FAILED] ${error instanceof Error ? error.message : "Unknown sync error"}`);
+  console.error(sanitizeError(error));
   process.exitCode = 1;
+} finally {
+  await getPrisma().$disconnect();
 }

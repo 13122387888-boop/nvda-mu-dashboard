@@ -1,32 +1,19 @@
+// Collection runs on the trusted machine with Longbridge CLI installed.
+// This endpoint only invalidates read caches after a successful import.
 import { timingSafeEqual } from "node:crypto";
 import { revalidateTag } from "next/cache";
 import { requireServerEnv } from "@/lib/env";
-import { runSync } from "@/lib/sync/sync-service";
-
 export const runtime = "nodejs";
-export const dynamic = "force-dynamic";
-export const maxDuration = 300;
-
-function authorized(request: Request): boolean {
-  const secret = requireServerEnv("CRON_SECRET");
-  const supplied = request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-  const expectedBuffer = Buffer.from(secret);
-  const suppliedBuffer = Buffer.from(supplied);
-  return expectedBuffer.length === suppliedBuffer.length && timingSafeEqual(expectedBuffer, suppliedBuffer);
-}
-
-export async function GET(request: Request) {
-  try {
-    if (!authorized(request)) return Response.json({ error: "Unauthorized" }, { status: 401 });
-  } catch {
-    return Response.json({ error: "Cron is not configured" }, { status: 503 });
-  }
-
-  try {
-    const result = await runSync({ triggerType: "CRON", mode: "incremental" });
-    revalidateTag("stock-dashboard", { expire: 0 });
-    return Response.json(result, { status: result.status === "SUCCESS" ? 200 : 500 });
-  } catch {
-    return Response.json({ error: "Sync failed" }, { status: 500 });
-  }
+export async function POST(request: Request) {
+  const expected = Buffer.from(requireServerEnv("CRON_SECRET"));
+  const supplied = Buffer.from(
+    request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "",
+  );
+  if (
+    expected.length !== supplied.length ||
+    !timingSafeEqual(expected, supplied)
+  )
+    return Response.json({ error: "Unauthorized" }, { status: 401 });
+  revalidateTag("stock-dashboard", { expire: 0 });
+  return Response.json({ source: "LONGBRIDGE", cache: "refreshed" });
 }
